@@ -22,114 +22,114 @@ See [Usage](#usage) for more information and examples on specific commands and f
 ## Usage
 
 <details>
-  <summary>`!!search <song name>` - Searches Youtube results</summary>
+  <summary><code>!!search &lt;song name&gt;</code> - Searches Youtube results</summary>
 
   Searches YouTube for the top 20 results for the user to select which one to add to the queue.
-
-    <p align="center">
-        <img src="docs/search.png" alt="Search Example" width="50%"/>
-    </p>
+  
+  <div class="image-container" align="center">
+      <img src="docs/search.png" alt="Search Example" width="50%"/>
+  </div>
 </details>
 
 <details>
-  <summary>`!!play <song name or YouTube URL>` - Plays a song or adds it to queue</summary>
+  <summary><code>!!play &lt;song name or YouTube URL&gt;</code> - Plays a song or adds it to queue</summary>
 
   Searches for a song and plays the first result in the voice channel.
 
-    <p align="center">
-        <img src="docs/play_now.png" alt="Play Now Example" width="40%"/>
-        <img src="docs/play_queue.png" alt="Add to Queue Example" width="40%"/>
-    </p>
+  <div class="image-container" align="center">
+      <img src="docs/play_now.png" alt="Play Now Example" width="40%"/>
+      <img src="docs/play_queue.png" alt="Add to Queue Example" width="40%"/>
+  </div>
 </details>
 
 <details>
-  <summary>`!!pause` - Pauses the currently playing song</summary>
+  <summary><code>!!pause</code> - Pauses the currently playing song</summary>
 
-    <p align="center">
-        <img src="docs/pause.png" alt="Pause Example" width="40%"/>
-    </p>
+  <div class="image-container" align="center">
+      <img src="docs/pause.png" alt="Pause Example" width="40%"/>
+  </div>
 </details>
 
 <details>
-  <summary>`!!resume` - Resumes the currently paused song</summary>
+  <summary><code>!!resume</code> - Resumes the currently paused song</summary>
 
-    <p align="center">
-        <img src="docs/resume.png" alt="Resume Example" width="40%"/>
-    </p>
+  <div class="image-container" align="center">
+      <img src="docs/resume.png" alt="Resume Example" width="40%"/>
+  </div>
 </details>
 
 <details>
-  <summary>`!!skip` - Skips to the next song in the queue</summary>
+  <summary><code>!!skip</code> - Skips to the next song in the queue</summary>
 
   - Alias: `!!next`
 
   Skips the current song and plays the next one in the queue if available. The skipped song is not removed from the queue.
 
-    <p align="center">
-        <img src="docs/skip.png" alt="Skip Example" width="40%"/>
-    </p>
+  <div class="image-container" align="center">
+      <img src="docs/skip.png" alt="Skip Example" width="40%"/>
+  </div>
 </details>
 
 <details>
-  <summary>`!!stop` - Stops playing audio and clears the queue</summary>
+  <summary><code>!!stop</code> - Stops playing audio and clears the queue</summary>
 
   - Alias: `!!reset`
 
   Stops playing audio and clears the queue.
 
-    <p align="center">
-        <img src="docs/stop.png" alt="Stop Example" width="40%"/>
-    </p>
+  <div class="image-container" align="center">
+      <img src="docs/stop.png" alt="Stop Example" width="40%"/>
+  </div>
 </details>
 
 <details>
-  <summary>`!!here` - Moves the bot into the user's voice channel</summary>
+  <summary><code>!!here</code> - Moves the bot into the user's voice channel</summary>
 
   Moves the bot to the user's current voice channel and updates the session.
 
-    <p align="center">
-        <img src="docs/here.png" alt="Here Example" width="40%"/>
-    </p>
+  <div class="image-container" align="center">
+      <img src="docs/here.png" alt="Here Example" width="40%"/>
+  </div>
 </details>
 
 <details>
-  <summary>`!!leave` - Disconnects the bot from the voice channel and clears the queue</summary>
+  <summary><code>!!leave</code> - Disconnects the bot from the voice channel and clears the queue</summary>
 
-    <p align="center">
-        <img src="docs/leave.png" alt="Leave Example" width="40%"/>
-    </p>
+  <div class="image-container" align="center">
+      <img src="docs/leave.png" alt="Leave Example" width="40%"/>
+  </div>
 </details>
 
 <details>
-  <summary>`!!clearqueue` - Clears the queue, except the currently playing song</summary>
+  <summary><code>!!clearqueue</code> - Clears the queue, except the currently playing song</summary>
 
   - Alias: `!!clearQueue`, `!!cq`, `!!clear_next`, `!!clearnext`, `!!clearNext`, `!!cn`
 
-    <p align="center">
-        <img src="docs/clearqueue.png" alt="Clear Queue Example" width="40%"/>
-    </p>
+  <div class="image-container" align="center">
+      <img src="docs/clearqueue.png" alt="Clear Queue Example" width="40%"/>
+  </div>
 </details>
 
 <details>
-  <summary>`!!playingnow` - Gets the current song playing</summary>
-
+  <summary><code>!!playingnow</code> - Gets the current song playing</summary>
+    
   - Alias: `!!playingNow`, `!!playing`, `!!music`, `!!nowplaying`, `!!nowPlaying`, `!!now`, `!!musicnow`, `!!musicNow`
-
-    <p align="center">
-        <img src="docs/now.png" alt="Playing Now Example" width="40%"/>
-    </p>
+    
+  <div class="image-container" align="center">
+      <img src="docs/now.png" alt="Playing Now Example" width="40%"/>
+  </div>
 </details>
 
 <details>
-  <summary>`!!queue` - Displays the current queue of songs</summary>
+  <summary><code>!!queue</code> - Displays the current queue of songs</summary>
 
   - Alias: `!!q`
 
   Displays the current queue of songs in groups of 10.
 
-    <p align="center">
-        <img src="docs/queue.png" alt="Queue Example" width="40%"/>
-    </p>
+  <div class="image-container" align="center">
+      <img src="docs/queue.png" alt="Queue Example" width="40%"/>
+  </div>
 </details>
 
 **Other Utility Commands**
