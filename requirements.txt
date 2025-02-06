@@ -1,0 +1,14 @@
+# Core dependencies for Discord bot
+discord.py
+discord.py[voice]
+discord.py-pagination
+
+# Utility and external libraries
+requests
+openai
+yt-dlp
+python-dotenv
+pillow
+
+# Asynchronous support
+asyncio

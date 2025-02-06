@@ -1,0 +1,10 @@
+# Application directories
+backups/
+logs/
+
+# Python bytecode and caches
+__pycache__/
+
+# Environment files
+*.env
+secrets
