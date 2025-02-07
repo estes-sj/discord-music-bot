@@ -200,13 +200,40 @@ class Music(commands.Cog):
             else:
                 elapsed_time = 0  # Reset the timer if something is playing
 
+    async def ensure_user_in_voice(self, ctx):
+        """
+        Ensures that the user issuing the command is in a voice channel.
+
+        :param ctx: The command context.
+        :return: True if the user is in a voice channel, False otherwise.
+        """
+        if not ctx.author.voice:
+            await ctx.send("*You are not connected to a voice channel.*")
+            await ctx.message.add_reaction("❌")
+            return False
+        return True
+
+    async def ensure_bot_in_voice(self, ctx):
+        """
+        Ensures that the bot is connected to a voice channel.
+
+        :param ctx: The command context.
+        :return: True if the bot is in a voice channel, False otherwise.
+        """
+        voice = ctx.voice_client
+        if not voice or not voice.is_connected():
+            await ctx.send("*The bot is not connected to a voice channel.*")
+            await ctx.message.add_reaction("🙅‍♂️")
+            return False
+        return True
+
     @commands.command(name='play')
-    async def play(self, ctx, *, arg):
+    async def play(self, ctx, *, query):
         """
         Searches for a song and plays the first result in the voice channel.
 
         :param ctx: discord.ext.commands.Context
-        :param arg: str Search query or YouTube URL
+        :param query: str Search query or YouTube URL
         """
         try:
             voice_channel = ctx.author.voice.channel
@@ -214,7 +241,7 @@ class Music(commands.Cog):
             await ctx.send("*You are not connected to a voice channel.*")
             await ctx.message.add_reaction("❌")
             return
-
+        
         session = await self.get_session(ctx)
         if session is None:
             return
@@ -222,11 +249,11 @@ class Music(commands.Cog):
         async with ctx.typing():  # Shows "Bot is typing..." while processing
             with youtube_dl.YoutubeDL({'format': 'bestaudio', 'noplaylist': 'True'}) as ydl:
                 try:
-                    requests.get(arg)
+                    requests.get(query)
                 except:
-                    info = ydl.extract_info(f"ytsearch:{arg}", download=False)['entries'][0]
+                    info = ydl.extract_info(f"ytsearch:{query}", download=False)['entries'][0]
                 else:
-                    info = ydl.extract_info(arg, download=False)
+                    info = ydl.extract_info(query, download=False)
 
             url = info['url']
             thumb = info['thumbnails'][0]['url']
@@ -276,6 +303,11 @@ class Music(commands.Cog):
         """
         Skips the current song and plays the next one in the queue if available. The skipped song is not removed from the queue.
         """
+        if not await self.ensure_user_in_voice(ctx):
+            return
+        if not await self.ensure_bot_in_voice(ctx):
+            return
+
         session = await self.get_session(ctx)
         if session is None:
             return
@@ -318,6 +350,11 @@ class Music(commands.Cog):
         """
         Pauses the current song if playing.
         """
+        if not await self.ensure_user_in_voice(ctx):
+            return
+        if not await self.ensure_bot_in_voice(ctx):
+            return
+
         session = await self.get_session(ctx)
         if session is None:
             return
@@ -335,6 +372,11 @@ class Music(commands.Cog):
         """
         Resumes the currently paused song.
         """
+        if not await self.ensure_user_in_voice(ctx):
+            return
+        if not await self.ensure_bot_in_voice(ctx):
+            return
+
         session = await self.get_session(ctx)
         if session is None:
             return
@@ -352,6 +394,11 @@ class Music(commands.Cog):
         """
         Stops playing audio and clears the queue.
         """
+        if not await self.ensure_user_in_voice(ctx):
+            return
+        if not await self.ensure_bot_in_voice(ctx):
+            return
+
         session = await self.get_session(ctx)
         if session is None:
             return
@@ -580,6 +627,20 @@ class Music(commands.Cog):
         await ctx.send(content="", view=YouTubeSearchDropdown(ctx, self.bot, results))
 
         await ctx.message.add_reaction("🔍")
+
+    @play.error
+    async def on_command_error(self, ctx, error):
+        if isinstance(error, commands.MissingRequiredArgument):
+            await ctx.send("*❌ Please provide a search query or YouTube URL when using the `play` command. Usage: `.play <query>`*")
+            await ctx.message.add_reaction("❌")
+            return
+
+    @search.error
+    async def on_command_error(self, ctx, error):
+        if isinstance(error, commands.MissingRequiredArgument):
+            await ctx.send("*❌ Please provide a search query or YouTube URL when using the `search` command. Usage:`.search <query>`*")
+            await ctx.message.add_reaction("❌")
+            return
 
 def setup(bot):
     bot.add_cog(Music(bot))
