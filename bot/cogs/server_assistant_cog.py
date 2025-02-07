@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 
 from discord.ext import commands
 
+from bot import __version__
+
 logger = logging.getLogger("discord")
 
 # Record the start time of this instance
@@ -14,6 +16,7 @@ start_time = t.time()
 class ServerAssistant(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.version = __version__
 
     @commands.command()
     async def time(self, ctx):
@@ -51,7 +54,7 @@ class ServerAssistant(commands.Cog):
         except subprocess.CalledProcessError:
             return None
 
-        await ctx.channel.send(f"Discord Music Bot ({container_id}) Uptime: {elapsed_time_formatted}")
+        await ctx.channel.send(f"Discord Music Bot [`{container_id}`] | Version [`v{self.version}`] | Uptime: [`{elapsed_time_formatted}`]")
         return
 
     @commands.command()

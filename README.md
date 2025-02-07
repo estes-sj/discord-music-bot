@@ -213,6 +213,7 @@ Feel free to suggest others.
 - Removing an index from the queue
 - Skipping to a particular index in the queue
 - Shuffling a queue
+- Public Discord app/bot auto-running `master` (via pipelines)
 
 ### Bugs
 Will address bugs as I find them through my own personal use of the bot. Feel free to open an issue, create a PR, or reach out to me for other issues found.

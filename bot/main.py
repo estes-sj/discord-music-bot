@@ -1,4 +1,6 @@
+import sys
 import os
+
 import logging
 import logging.handlers
 
@@ -8,9 +10,8 @@ import discord
 from discord.ext import commands
 
 # Local imports
-import music_utilities as Utilities
-from music_cog import Music
-from server_assistant_cog import ServerAssistant
+from bot.cogs import Music, ServerAssistant
+from bot import __version__
 
 ######################### SETUP #########################
 load_dotenv()
@@ -74,7 +75,7 @@ async def on_ready():
     """
     await client.add_cog(Music(client))
     await client.add_cog(ServerAssistant(client))
-    logger.info('We have successfully logged in as {0.user}'.format(client))
+    logger.info('We have successfully logged in as {0.user} (Bot version: v{1})'.format(client, __version__))
 
 # Runs bot's loop.
 client.run(TOKEN, log_handler=None)

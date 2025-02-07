@@ -12,8 +12,8 @@ from discord import app_commands
 import yt_dlp as youtube_dl
 from PIL import Image
 
-import custom_paginator as Paginator
-import music_utilities as Utilities
+import bot.utils.custom_paginator as Paginator
+import bot.utils.music_utilities as Utilities
 
 # List of active sessions.
 sessions = []
@@ -413,8 +413,8 @@ class Music(commands.Cog):
 
         await ctx.message.add_reaction("📜")
 
-    @commands.command(name='clear_next', aliases=['clearnext', 'clearNext', 'cn', 'clear_queue', 'cq', 'clearqueue', 'clearQueue'])
-    async def clear_next(self, ctx):
+    @commands.command(name='clearqueue', aliases=['clearnext', 'clearNext', 'cn', 'clear_queue', 'cq', 'clear_next', 'clearQueue'])
+    async def clearqueue(self, ctx):
         """
         Clears the current queue of songs, except the currently playing song.
         """
@@ -471,8 +471,8 @@ class Music(commands.Cog):
         session.channel = voice_channel.id
         await ctx.message.add_reaction("🔄")
 
-    @commands.command(name='nowplaying', aliases=['nowPlaying', 'music', 'now', 'musicnow', 'musicNow', 'playing', 'playingnow', 'playingNow'])
-    async def nowplaying(self, ctx):
+    @commands.command(name='playingnow', aliases=['nowPlaying', 'music', 'now', 'musicnow', 'musicNow', 'playing', 'nowplaying', 'playingNow'])
+    async def playingnow(self, ctx):
         """
         Gets the current song playing.
         """
