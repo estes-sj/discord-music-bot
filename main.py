@@ -27,11 +27,11 @@ intents = discord.Intents(
 
 # Initialize bot with a command prefix
 # Change the prefix as desired
-activity = discord.Activity(type=discord.ActivityType.listening, name="!!help")
+activity = discord.Activity(type=discord.ActivityType.listening, name=".help")
 # Parameters are written in the doc string already
 help_command = commands.DefaultHelpCommand(show_parameter_descriptions=False)
 client = commands.Bot(
-    command_prefix="!!",
+    command_prefix=".",
     intents=intents,
     activity=activity,
     help_command=help_command

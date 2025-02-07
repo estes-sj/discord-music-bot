@@ -12,7 +12,7 @@ The main tools used are `youtube-dl` for pulling YouTube data and [FFmpeg](https
 I used cogs since I adapt this code onto other bots that I have. It makes it a bit more modular since I can simply add the `Music` cog to a pre-existing bot.
 
 ## Features
-See [Usage](#usage) for more information and examples on specific commands and features.
+See [Usage](#usage) for more information and examples on specific commands and features. Some of the music bot's features include:
 - Search and play YouTube music directly in voice channels
 - Queue management with pagination
 - Support for multiple guilds via Sessions
@@ -22,7 +22,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 ## Usage
 
 <details>
-  <summary><code>!!search &lt;song name&gt;</code> - Searches Youtube results</summary>
+  <summary><code>.search &lt;song name&gt;</code> - Searches Youtube results</summary>
 
   Searches YouTube for the top 20 results for the user to select which one to add to the queue.
   
@@ -32,7 +32,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>!!play &lt;song name or YouTube URL&gt;</code> - Plays a song or adds it to queue</summary>
+  <summary><code>.play &lt;song name or YouTube URL&gt;</code> - Plays a song or adds it to queue</summary>
 
   Searches for a song and plays the first result in the voice channel.
 
@@ -43,7 +43,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>!!pause</code> - Pauses the currently playing song</summary>
+  <summary><code>.pause</code> - Pauses the currently playing song</summary>
 
   <div class="image-container" align="center">
       <img src="docs/pause.png" alt="Pause Example" width="40%"/>
@@ -51,7 +51,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>!!resume</code> - Resumes the currently paused song</summary>
+  <summary><code>.resume</code> - Resumes the currently paused song</summary>
 
   <div class="image-container" align="center">
       <img src="docs/resume.png" alt="Resume Example" width="40%"/>
@@ -59,9 +59,9 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>!!skip</code> - Skips to the next song in the queue</summary>
+  <summary><code>.skip</code> - Skips to the next song in the queue</summary>
 
-  - Alias: `!!next`
+  - Alias: `.next`
 
   Skips the current song and plays the next one in the queue if available. The skipped song is not removed from the queue.
 
@@ -71,9 +71,9 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>!!stop</code> - Stops playing audio and clears the queue</summary>
+  <summary><code>.stop</code> - Stops playing audio and clears the queue</summary>
 
-  - Alias: `!!reset`
+  - Alias: `.reset`
 
   Stops playing audio and clears the queue.
 
@@ -83,7 +83,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>!!here</code> - Moves the bot into the user's voice channel</summary>
+  <summary><code>.here</code> - Moves the bot into the user's voice channel</summary>
 
   Moves the bot to the user's current voice channel and updates the session.
 
@@ -93,7 +93,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>!!leave</code> - Disconnects the bot from the voice channel and clears the queue</summary>
+  <summary><code>.leave</code> - Disconnects the bot from the voice channel and clears the queue</summary>
 
   <div class="image-container" align="center">
       <img src="docs/leave.png" alt="Leave Example" width="40%"/>
@@ -101,9 +101,9 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>!!clearqueue</code> - Clears the queue, except the currently playing song</summary>
+  <summary><code>.clearqueue</code> - Clears the queue, except the currently playing song</summary>
 
-  - Alias: `!!clearQueue`, `!!cq`, `!!clear_next`, `!!clearnext`, `!!clearNext`, `!!cn`
+  - Alias: `.clearQueue`, `.cq`, `.clear_next`, `.clearnext`, `.clearNext`, `.cn`
 
   <div class="image-container" align="center">
       <img src="docs/clearqueue.png" alt="Clear Queue Example" width="40%"/>
@@ -111,9 +111,9 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>!!playingnow</code> - Gets the current song playing</summary>
+  <summary><code>.playingnow</code> - Gets the current song playing</summary>
     
-  - Alias: `!!playingNow`, `!!playing`, `!!music`, `!!nowplaying`, `!!nowPlaying`, `!!now`, `!!musicnow`, `!!musicNow`
+  - Alias: `.playingNow`, `.playing`, `.music`, `.nowplaying`, `.nowPlaying`, `.now`, `.musicnow`, `.musicNow`
     
   <div class="image-container" align="center">
       <img src="docs/now.png" alt="Playing Now Example" width="40%"/>
@@ -121,9 +121,9 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>!!queue</code> - Displays the current queue of songs</summary>
+  <summary><code>.queue</code> - Displays the current queue of songs</summary>
 
-  - Alias: `!!q`
+  - Alias: `.q`
 
   Displays the current queue of songs in groups of 10.
 
@@ -135,10 +135,10 @@ See [Usage](#usage) for more information and examples on specific commands and f
 **Other Utility Commands**
 | Command                            | Description                                                                                   |
 |------------------------------------|-----------------------------------------------------------------------------------------------|
-| `!!help`                             | Shows this help message.                                                                      |
-| `!!ping`                             | Test command to check for basic bot responsiveness.                                           |
-| `!!time`                             | Displays the current time.                                                                    |
-| `!!up`                               | Reports container ID and uptime.                                                              |
+| `.help`                             | Shows this help message.                                                                      |
+| `.ping`                             | Test command to check for basic bot responsiveness.                                           |
+| `.time`                             | Displays the current time.                                                                    |
+| `.up`                               | Reports container ID and uptime.                                                              |
 
 ## Installation Steps
 
@@ -192,12 +192,12 @@ See [Usage](#usage) for more information and examples on specific commands and f
 
 ### Discord.py and Bot Settings
 - `main.py`'s lines ~15-70 contain configurable settings that can be altered to better fit the user's needs. Commonly changed variables that can be searched for in the first part of `main.py` are:
-  - `command_prefix` - Set to `!!` but can be switched to whatever else (e.g. `!`, `?`, etc.)
+  - `command_prefix` - Set to `.` but can be switched to whatever else (e.g. `!`, `?`, `.`, etc.)
     - If changing, the `activity` name above it should be changed too
   - `logger.setLevel(logging.INFO)` - Can be changed to other levels such as `DEBUG`, `WARNING`, `ERROR` based on what is needed
   - `maxBytes` - The max bytes of each log file
   - `backupCount` - The max number of backup files stored. Each have a max size of `maxBytes`
-- The `docker-compose.yaml` maps the volume `/var/run/docker.sock:/var/run/docker.sock` to allow docker commands inside of the container. The only use in this particular bot is for the `!!up` command that returns the uptime of the instance. Some may find it overkill and can remove the volume mapping and/or content for `up` in `sever_assistant_cog.py`. Personally, I use it for other controlling other related containers in other bots.
+- The `docker-compose.yaml` maps the volume `/var/run/docker.sock:/var/run/docker.sock` to allow docker commands inside of the container. The only use in this particular bot is for the `.up` command that returns the uptime of the instance. Some may find it overkill and can remove the volume mapping and/or content for `up` in `sever_assistant_cog.py`. Personally, I use it for controlling some related containers in other bots.
 
 ## Future Work
 

@@ -12,7 +12,7 @@ from discord import app_commands
 import yt_dlp as youtube_dl
 from PIL import Image
 
-import Paginator
+import custom_paginator as Paginator
 import music_utilities as Utilities
 
 # List of active sessions.
@@ -409,7 +409,7 @@ class Music(commands.Cog):
 
             embeds.append(embed)
 
-        await Paginator.Simple(timeout=120).start(ctx, pages=embeds)
+        await Paginator.CustomPaginator(timeout=120).start(ctx, pages=embeds)
 
         await ctx.message.add_reaction("📜")
 
@@ -575,7 +575,7 @@ class Music(commands.Cog):
                 embeds.append(embed)
         
         # Start paginator (this automatically handles page navigation)
-        await Paginator.Simple(timeout=120).start(ctx, pages=embeds)
+        await Paginator.CustomPaginator(timeout=120).start(ctx, pages=embeds)
 
         await ctx.send(content="", view=YouTubeSearchDropdown(ctx, self.bot, results))
 
@@ -618,7 +618,10 @@ class YouTubeSearchDropdown(discord.ui.View):
 
         # Simulate calling !play command
         await interaction.response.send_message(f"*🎶 Selected:* ***{selected_video['title']}***", ephemeral=True)
-        await music_cog.play(self.ctx, arg=selected_video['url'])
+        
+        ctx = await self.bot.get_context(interaction.message)
+        ctx.author = interaction.user  # Override the author to reflect the user who selected the song
+        await music_cog.play(ctx, arg=selected_video['url'])
 
 async def get_dominant_color(image_url):
     """
