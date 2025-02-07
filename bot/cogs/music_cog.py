@@ -682,7 +682,7 @@ class YouTubeSearchDropdown(discord.ui.View):
         
         ctx = await self.bot.get_context(interaction.message)
         ctx.author = interaction.user  # Override the author to reflect the user who selected the song
-        await music_cog.play(ctx, arg=selected_video['url'])
+        await music_cog.play(ctx, query=selected_video['url'])
 
 async def get_dominant_color(image_url):
     """
