@@ -83,6 +83,8 @@ See [Usage](#usage) for more information and examples on specific commands and f
 <details>
   <summary><code>.here</code> - Moves the bot into the user's voice channel</summary>
 
+  - Alias: `.join`
+
   Moves the bot to the user's current voice channel and updates the session.
 
   <div class="image-container" align="center">

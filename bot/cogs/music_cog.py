@@ -491,7 +491,7 @@ class Music(commands.Cog):
         await ctx.send("*The queue has been cleared.*")
         await ctx.message.add_reaction("🧹")
 
-    @commands.command(name='here')
+    @commands.command(name='here', aliases=['join'])
     async def here(self, ctx):
         """
         Moves the bot to the user's current voice channel and updates the session.
