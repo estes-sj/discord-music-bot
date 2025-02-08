@@ -12,8 +12,8 @@ from discord import app_commands
 import yt_dlp as youtube_dl
 from PIL import Image
 
-import Paginator
-import music_utilities as Utilities
+import bot.utils.custom_paginator as Paginator
+import bot.utils.music_utilities as Utilities
 
 # List of active sessions.
 sessions = []
@@ -200,13 +200,40 @@ class Music(commands.Cog):
             else:
                 elapsed_time = 0  # Reset the timer if something is playing
 
+    async def ensure_user_in_voice(self, ctx):
+        """
+        Ensures that the user issuing the command is in a voice channel.
+
+        :param ctx: The command context.
+        :return: True if the user is in a voice channel, False otherwise.
+        """
+        if not ctx.author.voice:
+            await ctx.send("*You are not connected to a voice channel.*")
+            await ctx.message.add_reaction("❌")
+            return False
+        return True
+
+    async def ensure_bot_in_voice(self, ctx):
+        """
+        Ensures that the bot is connected to a voice channel.
+
+        :param ctx: The command context.
+        :return: True if the bot is in a voice channel, False otherwise.
+        """
+        voice = ctx.voice_client
+        if not voice or not voice.is_connected():
+            await ctx.send("*The bot is not connected to a voice channel.*")
+            await ctx.message.add_reaction("🙅‍♂️")
+            return False
+        return True
+
     @commands.command(name='play')
-    async def play(self, ctx, *, arg):
+    async def play(self, ctx, *, query):
         """
         Searches for a song and plays the first result in the voice channel.
 
         :param ctx: discord.ext.commands.Context
-        :param arg: str Search query or YouTube URL
+        :param query: str Search query or YouTube URL
         """
         try:
             voice_channel = ctx.author.voice.channel
@@ -214,7 +241,7 @@ class Music(commands.Cog):
             await ctx.send("*You are not connected to a voice channel.*")
             await ctx.message.add_reaction("❌")
             return
-
+        
         session = await self.get_session(ctx)
         if session is None:
             return
@@ -222,11 +249,11 @@ class Music(commands.Cog):
         async with ctx.typing():  # Shows "Bot is typing..." while processing
             with youtube_dl.YoutubeDL({'format': 'bestaudio', 'noplaylist': 'True'}) as ydl:
                 try:
-                    requests.get(arg)
+                    requests.get(query)
                 except:
-                    info = ydl.extract_info(f"ytsearch:{arg}", download=False)['entries'][0]
+                    info = ydl.extract_info(f"ytsearch:{query}", download=False)['entries'][0]
                 else:
-                    info = ydl.extract_info(arg, download=False)
+                    info = ydl.extract_info(query, download=False)
 
             url = info['url']
             thumb = info['thumbnails'][0]['url']
@@ -276,6 +303,11 @@ class Music(commands.Cog):
         """
         Skips the current song and plays the next one in the queue if available. The skipped song is not removed from the queue.
         """
+        if not await self.ensure_user_in_voice(ctx):
+            return
+        if not await self.ensure_bot_in_voice(ctx):
+            return
+
         session = await self.get_session(ctx)
         if session is None:
             return
@@ -318,6 +350,11 @@ class Music(commands.Cog):
         """
         Pauses the current song if playing.
         """
+        if not await self.ensure_user_in_voice(ctx):
+            return
+        if not await self.ensure_bot_in_voice(ctx):
+            return
+
         session = await self.get_session(ctx)
         if session is None:
             return
@@ -335,6 +372,11 @@ class Music(commands.Cog):
         """
         Resumes the currently paused song.
         """
+        if not await self.ensure_user_in_voice(ctx):
+            return
+        if not await self.ensure_bot_in_voice(ctx):
+            return
+
         session = await self.get_session(ctx)
         if session is None:
             return
@@ -352,6 +394,11 @@ class Music(commands.Cog):
         """
         Stops playing audio and clears the queue.
         """
+        if not await self.ensure_user_in_voice(ctx):
+            return
+        if not await self.ensure_bot_in_voice(ctx):
+            return
+
         session = await self.get_session(ctx)
         if session is None:
             return
@@ -370,6 +417,9 @@ class Music(commands.Cog):
         """
         Displays the current queue of songs in groups of 10.
         """
+        if not await self.ensure_bot_in_voice(ctx):
+            return
+
         session = await self.get_session_in_guild(ctx)
         if session is None:
             return
@@ -409,15 +459,20 @@ class Music(commands.Cog):
 
             embeds.append(embed)
 
-        await Paginator.Simple(timeout=120).start(ctx, pages=embeds)
+        await Paginator.CustomPaginator(timeout=120).start(ctx, pages=embeds)
 
         await ctx.message.add_reaction("📜")
 
-    @commands.command(name='clear_next', aliases=['clearnext', 'clearNext', 'cn', 'clear_queue', 'cq', 'clearqueue', 'clearQueue'])
-    async def clear_next(self, ctx):
+    @commands.command(name='clearqueue', aliases=['clearnext', 'clearNext', 'cn', 'clear_queue', 'cq', 'clear_next', 'clearQueue'])
+    async def clearqueue(self, ctx):
         """
         Clears the current queue of songs, except the currently playing song.
         """
+        if not await self.ensure_user_in_voice(ctx):
+            return
+        if not await self.ensure_bot_in_voice(ctx):
+            return
+
         session = await self.get_session(ctx)
         if session is None:
             return
@@ -436,7 +491,7 @@ class Music(commands.Cog):
         await ctx.send("*The queue has been cleared.*")
         await ctx.message.add_reaction("🧹")
 
-    @commands.command(name='here')
+    @commands.command(name='here', aliases=['join'])
     async def here(self, ctx):
         """
         Moves the bot to the user's current voice channel and updates the session.
@@ -471,11 +526,14 @@ class Music(commands.Cog):
         session.channel = voice_channel.id
         await ctx.message.add_reaction("🔄")
 
-    @commands.command(name='nowplaying', aliases=['nowPlaying', 'music', 'now', 'musicnow', 'musicNow', 'playing', 'playingnow', 'playingNow'])
-    async def nowplaying(self, ctx):
+    @commands.command(name='playingnow', aliases=['nowPlaying', 'music', 'now', 'musicnow', 'musicNow', 'playing', 'nowplaying', 'playingNow'])
+    async def playingnow(self, ctx):
         """
         Gets the current song playing.
         """
+        if not await self.ensure_bot_in_voice(ctx):
+            return
+
         session = await self.get_session_in_guild(ctx)
         if session is None:
             return
@@ -575,11 +633,25 @@ class Music(commands.Cog):
                 embeds.append(embed)
         
         # Start paginator (this automatically handles page navigation)
-        await Paginator.Simple(timeout=120).start(ctx, pages=embeds)
+        await Paginator.CustomPaginator(timeout=120).start(ctx, pages=embeds)
 
         await ctx.send(content="", view=YouTubeSearchDropdown(ctx, self.bot, results))
 
         await ctx.message.add_reaction("🔍")
+
+    @play.error
+    async def on_command_error(self, ctx, error):
+        if isinstance(error, commands.MissingRequiredArgument):
+            await ctx.send("*❌ Please provide a search query or YouTube URL when using the `play` command. Usage: `.play <query>`*")
+            await ctx.message.add_reaction("❌")
+            return
+
+    @search.error
+    async def on_command_error(self, ctx, error):
+        if isinstance(error, commands.MissingRequiredArgument):
+            await ctx.send("*❌ Please provide a search query or YouTube URL when using the `search` command. Usage:`.search <query>`*")
+            await ctx.message.add_reaction("❌")
+            return
 
 def setup(bot):
     bot.add_cog(Music(bot))
@@ -618,7 +690,10 @@ class YouTubeSearchDropdown(discord.ui.View):
 
         # Simulate calling !play command
         await interaction.response.send_message(f"*🎶 Selected:* ***{selected_video['title']}***", ephemeral=True)
-        await music_cog.play(self.ctx, arg=selected_video['url'])
+        
+        ctx = await self.bot.get_context(interaction.message)
+        ctx.author = interaction.user  # Override the author to reflect the user who selected the song
+        await music_cog.play(ctx, query=selected_video['url'])
 
 async def get_dominant_color(image_url):
     """
