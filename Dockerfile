@@ -1,8 +1,7 @@
 FROM python:3.10-alpine
 
-# Install required packages: Docker CLI, Bash, FFmpeg, and dependencies for yt-dlp
+# Install required packages: Bash, FFmpeg, and dependencies for yt-dlp
 RUN apk add --no-cache \
-    docker \
     bash \
     ffmpeg \
     musl-dev \

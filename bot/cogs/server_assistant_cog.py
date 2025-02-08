@@ -10,12 +10,10 @@ from bot import __version__
 
 logger = logging.getLogger("discord")
 
-# Record the start time of this instance
-start_time = t.time()
-
 class ServerAssistant(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.start_time = t.time()  # Store the bot's start time
         self.version = __version__
 
     @commands.command()
@@ -32,27 +30,23 @@ class ServerAssistant(commands.Cog):
     @commands.command()
     async def up(self, ctx):
         """
-        Report container ID and uptime
+        Report container hostname and uptime
 
         Usage: ?up
         """
         # Record the end time
         end_time = t.time()
         # Calculate the elapsed time
-        elapsed_time_seconds = end_time - start_time
+        elapsed_time_seconds = end_time - self.start_time
         # Format the elapsed time
         elapsed_time_formatted = str(timedelta(seconds=int(elapsed_time_seconds)))
 
-        container_id = "Debug"
+        # Get the hostname from /etc/hostname
         try:
-            container_name = "discord-music-bot"
-            # Run the Docker command to get container ID
-            command = f'docker ps -q -f name={container_name}'
-            container_id = subprocess.check_output(command, shell=True, text=True).strip()
-            # Keep only the first 12 characters of the container ID
-            container_id = container_id[:12]
-        except subprocess.CalledProcessError:
-            return None
+            with open("/etc/hostname", "r") as f:
+                container_id = f.read().strip()
+        except Exception:
+            container_id = "Unknown"
 
         await ctx.channel.send(f"Discord Music Bot [`{container_id}`] | Version [`v{self.version}`] | Uptime: [`{elapsed_time_formatted}`]")
         return

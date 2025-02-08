@@ -8,6 +8,5 @@ services:
     volumes:
       - .:/app  # Mount the project directory to /app
       - ./logs:/app/logs  # Ensure logs are written to the host
-      - /var/run/docker.sock:/var/run/docker.sock  # Docker visibility for the bot
     env_file:
       - .env
