@@ -46,7 +46,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
   <summary><code>.pause</code> - Pauses the actively playing song</summary>
 
   <div class="image-container" align="center">
-      <img src="docs/pause.png" alt="Pause Example" width="40%"/>
+      <img src="docs/pause.png" alt="Pause Example" width="50%"/>
   </div>
 </details>
 
@@ -54,7 +54,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
   <summary><code>.resume</code> - Resumes the actively paused song</summary>
 
   <div class="image-container" align="center">
-      <img src="docs/resume.png" alt="Resume Example" width="40%"/>
+      <img src="docs/resume.png" alt="Resume Example" width="50%"/>
   </div>
 </details>
 
@@ -66,7 +66,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
   Skips the current song and plays the next one in the queue if available. The skipped song is not removed from the queue.
 
   <div class="image-container" align="center">
-      <img src="docs/skip.png" alt="Skip Example" width="40%"/>
+      <img src="docs/skip.png" alt="Skip Example" width="50%"/>
   </div>
 </details>
 
@@ -76,7 +76,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
   - Alias: `.reset`
 
   <div class="image-container" align="center">
-      <img src="docs/stop.png" alt="Stop Example" width="40%"/>
+      <img src="docs/stop.png" alt="Stop Example" width="50%"/>
   </div>
 </details>
 
@@ -86,7 +86,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
   Moves the bot to the user's current voice channel and updates the session.
 
   <div class="image-container" align="center">
-      <img src="docs/here.png" alt="Here Example" width="40%"/>
+      <img src="docs/here.png" alt="Here Example" width="50%"/>
   </div>
 </details>
 
@@ -94,7 +94,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
   <summary><code>.leave</code> - Disconnects the bot from the voice channel and clears the queue</summary>
 
   <div class="image-container" align="center">
-      <img src="docs/leave.png" alt="Leave Example" width="40%"/>
+      <img src="docs/leave.png" alt="Leave Example" width="50%"/>
   </div>
 </details>
 
@@ -104,7 +104,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
   - Alias: `.clearQueue`, `.cq`, `.clear_next`, `.clearnext`, `.clearNext`, `.cn`
 
   <div class="image-container" align="center">
-      <img src="docs/clearqueue.png" alt="Clear Queue Example" width="40%"/>
+      <img src="docs/clearqueue.png" alt="Clear Queue Example" width="50%"/>
   </div>
 </details>
 
@@ -114,7 +114,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
   - Alias: `.playingNow`, `.playing`, `.music`, `.nowplaying`, `.nowPlaying`, `.now`, `.musicnow`, `.musicNow`
     
   <div class="image-container" align="center">
-      <img src="docs/now.png" alt="Playing Now Example" width="40%"/>
+      <img src="docs/now.png" alt="Playing Now Example" width="50%"/>
   </div>
 </details>
 
@@ -126,7 +126,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
   Displays the current queue of songs in groups of 10.
 
   <div class="image-container" align="center">
-      <img src="docs/queue.png" alt="Queue Example" width="40%"/>
+      <img src="docs/queue.png" alt="Queue Example" width="50%"/>
   </div>
 </details>
 
@@ -211,6 +211,7 @@ Feel free to suggest others.
 - Skipping to a particular index in the queue
 - Shuffling a queue
 - Public Discord app/bot auto-running `master` (via pipelines)
+  - `ENV` variable that can be passed in for scheduled restarts/maintenance (seen in the footer of embeds)
 
 ### Bugs
 Will address bugs as I identify them through my own personal use of the bot. Feel free to open an issue, create a PR, or reach out to me for other issues found.

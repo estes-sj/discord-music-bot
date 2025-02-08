@@ -417,6 +417,9 @@ class Music(commands.Cog):
         """
         Displays the current queue of songs in groups of 10.
         """
+        if not await self.ensure_bot_in_voice(ctx):
+            return
+
         session = await self.get_session_in_guild(ctx)
         if session is None:
             return
@@ -465,6 +468,11 @@ class Music(commands.Cog):
         """
         Clears the current queue of songs, except the currently playing song.
         """
+        if not await self.ensure_user_in_voice(ctx):
+            return
+        if not await self.ensure_bot_in_voice(ctx):
+            return
+
         session = await self.get_session(ctx)
         if session is None:
             return
@@ -523,6 +531,9 @@ class Music(commands.Cog):
         """
         Gets the current song playing.
         """
+        if not await self.ensure_bot_in_voice(ctx):
+            return
+
         session = await self.get_session_in_guild(ctx)
         if session is None:
             return
