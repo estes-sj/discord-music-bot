@@ -2,6 +2,7 @@ import asyncio
 import io
 import logging
 import logging.handlers
+import re
 
 import requests
 
@@ -140,7 +141,7 @@ class Music(commands.Cog):
 
         # Create an embed with the song details
         embed = discord.Embed(
-            title=session.q.current_music.title,
+            title=f'{escape_markdown(truncate_text(session.q.current_music.title))}',
             url=session.q.current_music.ytube,
             color=discord.Color(dominant_color),
             description=(
@@ -274,7 +275,7 @@ class Music(commands.Cog):
                 voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
                 asyncio.create_task(self.auto_disconnect(ctx, voice))  # Start the auto-disconnect task
 
-            embed = discord.Embed(title=title, url=ytube_url, color=discord.Color(dominant_color))  
+            embed = discord.Embed(title=f'{escape_markdown(truncate_text(title))}', url=ytube_url, color=discord.Color(dominant_color))  
             embed.set_thumbnail(url=thumb)
             embed.set_author(name="Music Stream Link", url=url)
 
@@ -435,7 +436,7 @@ class Music(commands.Cog):
 
         # Generate queue list with the new format
         queue_list = [
-            f"**{i + 1}.** {song.title}\n"
+            f"**{i + 1}.** {escape_markdown(truncate_text(song.title))}\n"
             f"{await convert_duration_pretty(song.duration)} | [Link]({song.ytube}) | <@{song.user}>"
             for i, song in enumerate(session.q.queue)
         ]
@@ -559,7 +560,7 @@ class Music(commands.Cog):
 
         # Create an embed with the song details
         embed = discord.Embed(
-            title=session.q.current_music.title,
+            title=f'{escape_markdown(truncate_text(session.q.current_music.title))}',
             url=session.q.current_music.ytube,
             color=discord.Color(dominant_color),
             description=(
@@ -615,8 +616,8 @@ class Music(commands.Cog):
             dominant_color = await get_dominant_color(first_thumb)
 
             search_list = [
-                f"**{i + 1}.** {video['title']}\n"
-                f"{video['duration']} | [Link]({video['url']}) | {video['channel']}"
+                f"**{i + 1}.** {escape_markdown(truncate_text(video['title']))}\n"
+                f"{video['duration']} | [Link]({video['url']}) | {escape_markdown(truncate_text(video['channel']))}"
                 for i, video in enumerate(results)
             ]
 
@@ -689,7 +690,7 @@ class YouTubeSearchDropdown(discord.ui.View):
             return
 
         # Simulate calling !play command
-        await interaction.response.send_message(f"*🎶 Selected:* ***{selected_video['title']}***", ephemeral=True)
+        await interaction.response.send_message(f"*🎶 Selected:* ***{escape_markdown(truncate_text(selected_video['title']))}***", ephemeral=True)
         
         ctx = await self.bot.get_context(interaction.message)
         ctx.author = interaction.user  # Override the author to reflect the user who selected the song
@@ -726,7 +727,12 @@ async def get_dominant_color(image_url):
     
 async def convert_duration_pretty(duration):
     """
-    Convert duration (in seconds) to HH:MM:SS format
+    Convert a duration in seconds to a formatted string in HH:MM:SS format.
+
+    If the duration is `None` or invalid, returns "Unknown".
+
+    :param duration: int or None - The duration in seconds.
+    :return: str - The formatted duration string in HH:MM:SS format.
     """
     if not duration:
         return "Unknown"
@@ -735,3 +741,28 @@ async def convert_duration_pretty(duration):
     hours, remainder = divmod(duration, 3600)
     minutes, seconds = divmod(remainder, 60)
     return f"{hours:02}:{minutes:02}:{seconds:02}"
+
+def escape_markdown(text):
+    """
+    Escape Discord markdown characters to prevent unintended formatting.
+
+    This function escapes characters such as *, _, `, ~, and | to ensure they
+    are displayed as plain text instead of being interpreted as formatting.
+
+    :param text: str - The input string containing possible markdown characters.
+    :return: str - The escaped string.
+    """
+    return re.sub(r"([*_`~|])", r"\\\1", text)
+
+def truncate_text(text, max_length=100):
+    """
+    Truncate a string to a specified maximum length and append '...' if truncated.
+
+    This function ensures that long text strings do not exceed a given length,
+    preventing display issues in embeds or UI elements.
+
+    :param text: str - The input string to be truncated.
+    :param max_length: int - The maximum allowed length before truncation (default: 100).
+    :return: str - The truncated string with '...' appended if necessary.
+    """
+    return text[:max_length] + "..." if len(text) > max_length else text
