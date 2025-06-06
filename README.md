@@ -198,6 +198,12 @@ See [Usage](#usage) for more information and examples on specific commands and f
   - `maxBytes` - The max bytes of each log file
   - `backupCount` - The max number of backup files stored. Each have a max size of `maxBytes`
 
+## Troubleshooting
+
+### Stuttering audio
+If the container logs include something like `[youtube] player: Signature extraction failed: Some formats may be missing`, chances are yt-dlp has to be updated for those changed/new formats.
+If it has been awhile since rebuilding containers, it is recommended to see if picks up a newer version of yt-dlp and solves the issue.
+
 ## Future Work
 
 ### New Features
