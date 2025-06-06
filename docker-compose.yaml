@@ -1,7 +1,7 @@
 version: "3.8"
 services:
   discord-bot:
-    build: .
+    image: estessj/discord-music-bot:latest
     container_name: discord-music-bot
     restart: unless-stopped
     volumes:
