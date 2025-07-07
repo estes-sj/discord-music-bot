@@ -15,6 +15,7 @@ RUN apk add --no-cache \
     musl-dev \
     libffi-dev \
     gcc \
+    git \
     && pip install --upgrade pip  # Make sure pip is up to date
 
 # Set the working directory in the container
