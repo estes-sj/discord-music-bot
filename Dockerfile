@@ -16,19 +16,23 @@ RUN apk add --no-cache \
     libffi-dev \
     gcc \
     git \
+    curl \
+    unzip \
     && pip install --upgrade pip  # Make sure pip is up to date
+
+# Install Deno
+RUN curl -fsSL https://deno.land/install.sh | sh \
+    && mv /root/.deno/bin/deno /usr/local/bin/deno
 
 # Set the working directory in the container
 WORKDIR /app
 
 # Copy the requirements file into the container and install dependencies
 COPY requirements.txt .
-
-# Install base dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Always install the latest yt-dlp version
-RUN pip install --no-cache-dir --upgrade yt-dlp
+# Install base dependencies and always install the latest yt-dlp version
+RUN pip install --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir -U yt-dlp
 
 # Copy the entire project into the container
 COPY . .
@@ -36,5 +40,10 @@ COPY . .
 # Set the PYTHONPATH to include the bot directory
 ENV PYTHONPATH=/app
 
-# Set the default command to run the bot
-CMD [ "python3", "bot/main.py" ]
+# Configure the yt-dlp update cron job before starting the bot.
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint
+RUN chmod +x /usr/local/bin/docker-entrypoint
+
+# Run the bot
+ENTRYPOINT ["docker-entrypoint"]
+CMD ["python3", "bot/main.py"]
