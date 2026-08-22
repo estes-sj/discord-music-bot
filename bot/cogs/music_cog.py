@@ -100,11 +100,12 @@ class Music(commands.Cog):
 
         :param ctx: discord.ext.commands.Context
         """
+        logger.info("Guild %s: scheduling music queue continuation", ctx.guild.id)
         fut = asyncio.run_coroutine_threadsafe(self.continue_queue(ctx), self.bot.loop)
         try:
             fut.result()
         except Exception as e:
-            logger.error(e)
+            logger.error("Guild %s: failed to continue the music queue: %s", ctx.guild.id, e)
 
     async def continue_queue(self, ctx):
         """
@@ -124,6 +125,7 @@ class Music(commands.Cog):
             return
 
         session.q.next()
+        logger.info("Guild %s: continuing with %s", ctx.guild.id, session.q.current_music.title)
         voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
         source = await discord.FFmpegOpusAudio.from_probe(session.q.current_music.url, **FFMPEG_OPTIONS)
 
@@ -248,7 +250,7 @@ class Music(commands.Cog):
             return
         
         async with ctx.typing():  # Shows "Bot is typing..." while processing
-            with youtube_dl.YoutubeDL({'format': 'bestaudio', 'noplaylist': 'True'}) as ydl:
+            with youtube_dl.YoutubeDL({'format': 'bestaudio', 'noplaylist': True}) as ydl:
                 try:
                     requests.get(query)
                 except:
