@@ -1,4 +1,4 @@
-FROM python:3.10-alpine
+FROM python:3.14-alpine
 
 # Labels
 LABEL org.opencontainers.image.title="discord-music-bot" \

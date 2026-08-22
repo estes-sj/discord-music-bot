@@ -152,12 +152,54 @@ See [Usage](#usage) for more information and examples on specific commands and f
 
 2. **Set up permissions**:
    - In the "OAuth2" tab, select "bot" under "scopes."
-   - Under "Bot Permissions," select the necessary permissions (such as "Send Messages," "Manage Messages," "Connect," "Speak," etc.).
+   - Under "Bot Permissions," select the necessary permissions (such as "Send Messages," "Manage Messages," "Connect," "Speak," etc.). See the example below for recommended permissions.
+    <div class="image-container" align="center">
+      <img src="docs/bot_permissions_example.png" alt="Bot Permissions Example" width="50%"/>
+    </div>
 
 3. **Invite your bot to a server**:
    - In the "OAuth2" tab, use the generated URL to invite the bot to your Discord server.
 
 ### Running through Docker
+
+Use one of the following options to run the bot with Docker Compose.
+
+#### Pull the published image
+
+1. **Create a directory for the deployment**:
+  ```bash
+  mkdir discord-music-bot
+  cd discord-music-bot
+  ```
+
+2. **Create a `docker-compose.yaml` file**:
+  ```yaml
+  services:
+    discord-bot:
+     image: estessj/discord-music-bot:latest
+     container_name: discord-music-bot
+     restart: unless-stopped
+     volumes:
+      - ./logs:/app/logs
+     env_file:
+      - .env
+  ```
+
+3. **Create a `.env` file in the root of the created directory**:
+  ```env
+  DISCORD_TOKEN=your-bot-token
+
+  # Optional: defaults to daily at 04:00 in the container's time zone.
+  YTDLP_UPDATE_SCHEDULE="0 4 * * *"
+  ```
+
+4. **Pull and start the bot**:
+  ```bash
+  docker compose pull
+  docker compose up -d
+  ```
+
+#### Build from source
 
 1. **Clone the repository**:
    ```bash
@@ -165,35 +207,27 @@ See [Usage](#usage) for more information and examples on specific commands and f
    cd discord-music-bot
    ```
 
-2. **Add Discord token to `.env` file**:
-   Create a `.env` file in the root directory of the project and add the following values:
+2. **Create the environment file in the root of the cloned repository**:
    ```env
    DISCORD_TOKEN=your-bot-token
 
    # Optional: defaults to daily at 04:00 in the container's time zone.
-   YTDLP_UPDATE_SCHEDULE="0 8 * * *"
+   YTDLP_UPDATE_SCHEDULE="0 4 * * *"
    ```
 
-3. **Run the bot with Docker Compose**:
-
-   Included is a `docker-compose.yaml`. To run the bot with `docker-compose`, follow these steps:
-
-   1. Make sure the `.env` file is in the root directory of the project (where your `docker-compose.yaml` file is located).
-   2. In the terminal, navigate to the directory with the `docker-compose.yaml` file, `docker-music-bot`.
-   3. Use the following command to start the bot:
+3. **Build and start the bot**:
    ```bash
-   docker-compose up -d --build
+   docker compose up -d --build
    ```
 
-4. **Bot is now live**:
-   - Once the bot is running, it will appear online in your Discord server and be able to join voice channels and play music.
+Once the bot is running, it will appear online in your Discord server and be able to join voice channels and play music.
 
 ## Configuration
 
 ### Environment Variables
 - `DISCORD_TOKEN`: The bot's token from the Discord Developer Portal.
 - `YTDLP_UPDATE_SCHEDULE`: Cron expression that updates `yt-dlp` in the running
-  container. Defaults to `0 4 * * *` (daily at 04:00). Update output is written
+  container. Defaults to `0 4 * * *` (daily at 04:00 of the container's timezone). Update output is written
   to `logs/yt-dlp-update.log`.
 
 ### Discord.py and Bot Settings
@@ -209,6 +243,14 @@ See [Usage](#usage) for more information and examples on specific commands and f
 ### Stuttering audio
 If the container logs include something like `[youtube] player: Signature extraction failed: Some formats may be missing`, chances are yt-dlp has to be updated for those changed/new formats.
 If it has been awhile since rebuilding containers, it is recommended to see if picks up a newer version of yt-dlp and solves the issue.
+
+One way without rebuilding the container is to run the following command in the container:
+```bash
+# Update yt-dlp to the latest version
+docker compose exec -T discord-bot python3 -m pip install --no-cache-dir --upgrade yt-dlp
+# Check the version
+docker compose exec -T discord-bot yt-dlp --version
+```
 
 ## Future Work
 
