@@ -169,6 +169,8 @@ See [Usage](#usage) for more information and examples on specific commands and f
    Create a `.env` file in the root directory of the project and add the following values:
    ```env
    DISCORD_TOKEN=your-bot-token
+  # Optional: defaults to daily at 04:00 in the container's time zone.
+  YTDLP_UPDATE_SCHEDULE="0 4 * * *"
    ```
 
 3. **Run the bot with Docker Compose**:
@@ -189,6 +191,9 @@ See [Usage](#usage) for more information and examples on specific commands and f
 
 ### Environment Variables
 - `DISCORD_TOKEN`: The bot's token from the Discord Developer Portal.
+- `YTDLP_UPDATE_SCHEDULE`: Cron expression that updates `yt-dlp` in the running
+  container. Defaults to `0 4 * * *` (daily at 04:00). Update output is written
+  to `logs/yt-dlp-update.log`.
 
 ### Discord.py and Bot Settings
 - `main.py`'s lines ~15-70 contain configurable settings that can be altered to better fit the user's needs. Commonly changed variables that can be searched for in the first part of `main.py` are:
