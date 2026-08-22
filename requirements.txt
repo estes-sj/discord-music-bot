@@ -1,6 +1,6 @@
 # Core dependencies for Discord bot
 discord.py
-git+https://github.com/Rapptz/discord.py@master#egg=discord.py[voice]
+discord.py[voice] @ git+https://github.com/Rapptz/discord.py@master
 discord.py-pagination
 
 # Utility and external libraries
