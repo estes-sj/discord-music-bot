@@ -16,6 +16,10 @@ from bot import __version__
 ######################### SETUP #########################
 load_dotenv()
 
+COMMAND_PREFIX = os.getenv("COMMAND_PREFIX", ".")
+LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", str(8 * 1024 * 1024)))
+LOG_BACKUP_COUNT = int(os.getenv("LOG_BACKUP_COUNT", "5"))
+
 # Bot intents configuration
 intents = discord.Intents(
     messages=True,
@@ -27,12 +31,11 @@ intents = discord.Intents(
 )
 
 # Initialize bot with a command prefix
-# Change the prefix as desired
-activity = discord.Activity(type=discord.ActivityType.listening, name=".help")
+activity = discord.Activity(type=discord.ActivityType.listening, name=f"{COMMAND_PREFIX}help")
 # Parameters are written in the doc string already
 help_command = commands.DefaultHelpCommand(show_parameter_descriptions=False)
 client = commands.Bot(
-    command_prefix=".",
+    command_prefix=COMMAND_PREFIX,
     intents=intents,
     activity=activity,
     help_command=help_command
@@ -56,8 +59,8 @@ os.makedirs(os.path.dirname(log_file_path), exist_ok=True)  # Ensure directory e
 handler = logging.handlers.RotatingFileHandler(
     filename=log_file_path,
     encoding="utf-8",
-    maxBytes=8 * 1024 * 1024,  # 8 MB
-    backupCount=5,  # Keep 5 backups
+    maxBytes=LOG_MAX_BYTES,
+    backupCount=LOG_BACKUP_COUNT,
 )
 
 # Log format
