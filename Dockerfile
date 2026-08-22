@@ -1,4 +1,4 @@
-FROM python:3.10-alpine
+FROM python:3.14-alpine
 
 # Labels
 LABEL org.opencontainers.image.title="discord-music-bot" \
@@ -11,6 +11,7 @@ LABEL org.opencontainers.image.title="discord-music-bot" \
 # Install required packages: Bash, FFmpeg, and dependencies for yt-dlp
 RUN apk add --no-cache \
     bash \
+    deno \
     ffmpeg \
     musl-dev \
     libffi-dev \
@@ -19,10 +20,6 @@ RUN apk add --no-cache \
     curl \
     unzip \
     && pip install --upgrade pip  # Make sure pip is up to date
-
-# Install Deno
-RUN curl -fsSL https://deno.land/install.sh | sh \
-    && mv /root/.deno/bin/deno /usr/local/bin/deno
 
 # Set the working directory in the container
 WORKDIR /app
