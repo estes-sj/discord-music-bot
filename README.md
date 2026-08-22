@@ -175,7 +175,7 @@ Use one of the following options to run the bot with Docker Compose.
 2. **Create a `docker-compose.yaml` file**:
   ```yaml
   services:
-    discord-bot:
+    discord-music-bot:
      image: estessj/discord-music-bot:latest
      container_name: discord-music-bot
      restart: unless-stopped
@@ -225,18 +225,13 @@ Once the bot is running, it will appear online in your Discord server and be abl
 ## Configuration
 
 ### Environment Variables
-- `DISCORD_TOKEN`: The bot's token from the Discord Developer Portal.
-- `YTDLP_UPDATE_SCHEDULE`: Cron expression that updates `yt-dlp` in the running
-  container. Defaults to `0 4 * * *` (daily at 04:00 of the container's timezone). Update output is written
-  to `logs/yt-dlp-update.log`.
-
-### Discord.py and Bot Settings
-- `main.py`'s lines ~15-70 contain configurable settings that can be altered to better fit the user's needs. Commonly changed variables that can be searched for in the first part of `main.py` are:
-  - `command_prefix` - Set to `.` but can be switched to whatever else (e.g. `!`, `?`, `.`, etc.)
-    - If changing, the `activity` name above it should be changed too
-  - `logger.setLevel(logging.INFO)` - Can be changed to other levels such as `DEBUG`, `WARNING`, or `ERROR` based on what is needed
-  - `maxBytes` - The max bytes of each log file
-  - `backupCount` - The max number of backup files stored. Each have a max size of `maxBytes`
+| Variable | Default | Example | Description |
+| --- | --- | --- | --- |
+| `DISCORD_TOKEN` | None | `DISCORD_TOKEN=your-bot-token` | Bot token from the Discord Developer Portal. |
+| `COMMAND_PREFIX` | `.` | `COMMAND_PREFIX=!` | Prefix used for bot commands and the displayed help activity. |
+| `LOG_MAX_BYTES` | `8388608` | `LOG_MAX_BYTES=16777216` | Maximum size, in bytes, of each `logs/discord.log` file before rotation. |
+| `LOG_BACKUP_COUNT` | `5` | `LOG_BACKUP_COUNT=10` | Number of rotated `discord.log` files to retain. |
+| `YTDLP_UPDATE_SCHEDULE` | `0 4 * * *` | `YTDLP_UPDATE_SCHEDULE="0 8 * * *"` | Cron expression for yt-dlp updates. Output is written to `logs/yt-dlp-update.log`. |
 
 ## Troubleshooting
 
@@ -247,9 +242,9 @@ If it has been awhile since rebuilding containers, it is recommended to see if p
 One way without rebuilding the container is to run the following command in the container:
 ```bash
 # Update yt-dlp to the latest version
-docker compose exec -T discord-bot python3 -m pip install --no-cache-dir --upgrade yt-dlp
+docker compose exec -T discord-music-bot python3 -m pip install --no-cache-dir --upgrade yt-dlp
 # Check the version
-docker compose exec -T discord-bot yt-dlp --version
+docker compose exec -T discord-music-bot yt-dlp --version
 ```
 
 ## Future Work
