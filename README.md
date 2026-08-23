@@ -132,6 +132,14 @@ See [Usage](#usage) for more information and examples on specific commands and f
   </div>
 </details>
 
+<details>
+  <summary><code>/remove</code> - Removes a selected upcoming song from the queue</summary>
+
+  - Prefix command aliases: `.remove`, `.rm`
+
+  `/remove` immediately opens an ephemeral dropdown of upcoming songs. The prefix commands open a small in-channel button first, because Discord only supports ephemeral messages as interaction responses. After a selection, the bot posts the removed song in the server channel.
+</details>
+
 **Other Utility Commands**
 | Command                            | Description                                                                                   |
 |------------------------------------|-----------------------------------------------------------------------------------------------|

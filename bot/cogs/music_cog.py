@@ -506,6 +506,44 @@ class Music(commands.Cog):
 
         await ctx.message.add_reaction("📜")
 
+    @commands.hybrid_command(name='remove', aliases=['rm'])
+    async def remove(self, ctx):
+        """Open a private selector for removing an upcoming queued track."""
+        if not await self.ensure_user_in_voice(ctx):
+            return
+        if not await self.ensure_bot_in_voice(ctx):
+            return
+
+        session = await self.get_session(ctx)
+        if session is None:
+            return
+
+        current_index = session.q.queued_track_index(session.q.current_music)
+        tracks = session.q.queue[current_index + 1:] if current_index is not None else []
+        if not tracks:
+            await ctx.send("*There are no upcoming songs to remove.*")
+            await ctx.message.add_reaction("🤷‍♂️")
+            return
+
+        if ctx.interaction:
+            await ctx.send(
+                "Choose a queued song to remove.",
+                ephemeral=True,
+                view=QueueRemoveSelector(
+                    self,
+                    ctx.guild.id,
+                    ctx.channel,
+                    ctx.author.id,
+                    tracks[:25],
+                ),
+            )
+            return
+
+        await ctx.send(
+            "Select a queued song to remove.",
+            view=QueueRemoveLauncher(self, ctx.guild.id, ctx.channel, ctx.author.id),
+        )
+
     @commands.command(name='clearqueue', aliases=['clearnext', 'clearNext', 'cn', 'clear_queue', 'cq', 'clear_next', 'clearQueue'])
     async def clearqueue(self, ctx):
         """
@@ -614,7 +652,7 @@ class Music(commands.Cog):
         embed.add_field(name="Duration", value=duration_str, inline=True)
         embed.add_field(name="Added By", value=f"<@{ctx.author.id}>", inline=True)
 
-        await ctx.send(embed=embed)
+        await ctx.send(embed=embed, view=MusicControls(self, ctx.guild.id))
         await ctx.message.add_reaction("🎶")
 
     @commands.command(name="search")
@@ -886,6 +924,95 @@ class QueuePositionSelector(discord.ui.View):
             ),
             view=None,
         )
+
+
+class QueueRemoveLauncher(discord.ui.View):
+    def __init__(self, music_cog, guild_id, response_channel, owner_id):
+        super().__init__(timeout=120)
+        self.music_cog = music_cog
+        self.guild_id = guild_id
+        self.response_channel = response_channel
+        self.owner_id = owner_id
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Only the user who ran the command can use this button.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Choose song", emoji="🎵", style=discord.ButtonStyle.secondary)
+    async def open_selector(self, interaction, button):
+        session = next((session for session in sessions if session.guild == self.guild_id), None)
+        current_index = session.q.queued_track_index(session.q.current_music) if session else None
+        tracks = session.q.queue[current_index + 1:] if current_index is not None else []
+        if not tracks:
+            await interaction.response.send_message("There are no upcoming songs to remove.", ephemeral=True)
+            return
+
+        await interaction.response.send_message(
+            "Choose a queued song to remove.",
+            ephemeral=True,
+            view=QueueRemoveSelector(
+                self.music_cog,
+                self.guild_id,
+                self.response_channel,
+                self.owner_id,
+                tracks[:25],
+            ),
+        )
+
+
+class QueueRemoveSelector(discord.ui.View):
+    def __init__(self, music_cog, guild_id, response_channel, owner_id, tracks):
+        super().__init__(timeout=120)
+        self.music_cog = music_cog
+        self.guild_id = guild_id
+        self.response_channel = response_channel
+        self.owner_id = owner_id
+        self.tracks = tracks
+        guild = music_cog.bot.get_guild(guild_id)
+        self.track_select = discord.ui.Select(
+            placeholder="Remove from queue...",
+            options=[
+                discord.SelectOption(
+                    label=track.title[:100],
+                    description=self.track_description(track, guild),
+                    value=str(index),
+                )
+                for index, track in enumerate(tracks)
+            ],
+        )
+        self.track_select.callback = self.select_track
+        self.add_item(self.track_select)
+
+    @staticmethod
+    def track_description(track, guild):
+        member = guild.get_member(track.user) if guild else None
+        author = member.display_name if member else f"User {track.user}"
+        return f"Added by {author}"[:100]
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Only the user who opened this menu can use it.", ephemeral=True)
+            return False
+
+        guild = self.music_cog.bot.get_guild(self.guild_id)
+        voice = guild.voice_client if guild else None
+        member = guild.get_member(interaction.user.id) if guild else None
+        if not voice or not voice.is_connected() or not member or not member.voice or member.voice.channel != voice.channel:
+            await interaction.response.send_message("Join my voice channel before removing a queued song.", ephemeral=True)
+            return False
+        return True
+
+    async def select_track(self, interaction):
+        session = next((session for session in sessions if session.guild == self.guild_id), None)
+        track = self.tracks[int(self.track_select.values[0])]
+        if not session or not session.q.remove_queued_track(track):
+            await interaction.response.edit_message(content="That track is no longer in the queue.", view=None)
+            return
+
+        await self.response_channel.send(f"*Removed from queue:* **{truncate_text(track.title)}**")
+        await interaction.response.edit_message(content="Track removed from the queue.", view=None)
 
 
 class YouTubeSearchDropdown(discord.ui.View):

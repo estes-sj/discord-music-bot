@@ -78,6 +78,7 @@ async def on_ready():
     """
     await client.add_cog(Music(client))
     await client.add_cog(ServerAssistant(client))
+    await client.tree.sync()
     logger.info('We have successfully logged in as {0.user} (Bot version: v{1})'.format(client, __version__))
 
 # Runs bot's loop.
