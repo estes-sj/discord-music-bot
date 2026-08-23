@@ -9,6 +9,7 @@ openai
 yt-dlp
 python-dotenv
 pillow
+cryptography
 
 # Asynchronous support
 asyncio

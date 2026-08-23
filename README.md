@@ -4,7 +4,7 @@
     <img src="docs/queuemessageonly.png" alt="Music Bot Peek" width="50%"/>
 </p>
 
-A Discord bot that allows users to play music from YouTube in a voice channel with custom commands for search, play, pause, and more.
+A Discord bot that allows users to play music from YouTube in a voice channel with custom commands for search, play, pause, and more. Spotify track, album, and playlist links are resolved to matching YouTube audio.
 Supports multiple tracks, queue management, and interactive selection.
 
 The main tools used are `youtube-dl` for pulling YouTube data and [FFmpeg](https://www.ffmpeg.org/) for audio streaming.
@@ -14,6 +14,7 @@ I used cogs since I adapt this code onto other bots that I have. It makes it a b
 ## Features
 See [Usage](#usage) for more information and examples on specific commands and features. Some of the music bot's features include:
 - Search and play YouTube music directly in voice channels
+- Resolve Spotify track, album, and playlist metadata to YouTube equivalents
 - Queue management with pagination
 - Support for multiple guilds via Sessions
 - Select music using Discord interactions
@@ -32,7 +33,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>.play &lt;song name or YouTube URL&gt;</code> - Plays a song or adds it to queue</summary>
+  <summary><code>.play &lt;song name, YouTube URL, or Spotify URL&gt;</code> - Plays a song or adds it to queue</summary>
 
   Searches for a song and plays the first result in the voice channel.
 
@@ -40,6 +41,31 @@ See [Usage](#usage) for more information and examples on specific commands and f
       <img src="docs/play_now.png" alt="Play Now Example" width="40%"/>
       <img src="docs/play_queue.png" alt="Add to Queue Example" width="40%"/>
   </div>
+</details>
+
+<details>
+  <summary><code>.play &lt;Spotify URL&gt;</code> - Imports Spotify metadata as YouTube matches</summary>
+
+  Spotify links do not stream Spotify audio directly. The bot reads Spotify metadata using credentials configured for this server, finds equivalent YouTube audio, and queues the successful matches.
+
+  On the first Spotify request in a server, the requester receives a DM asking for a Spotify Client ID and Client Secret. The bot validates them before storing them encrypted in the persistent `data/spotify.db` volume. Any user in the bot's voice channel can replace or clear the server's credentials.
+
+  Track and album links use the server's Spotify application credentials. Spotify requires user authorization to enumerate playlist items. On the first playlist request, the bot DMs the requester an authorization link; after accepting it, copy the complete redirected URL from the browser address bar into the DM. The encrypted refresh token is then stored per guild and renewed automatically. Register `SPOTIFY_REDIRECT_URI` exactly in the Spotify Developer Dashboard before using playlists. Spotify forbids `localhost`; for the manual callback flow, register and configure `http://127.0.0.1:8888/spotify-callback` instead. The browser may show a connection error after redirecting, which is expected: copy that page's complete address into the DM.
+
+  If the browser never displays the `http://127.0.0.1:8888/spotify-callback?...` URL, open its Developer Tools, select the **Network** tab, refresh the Spotify authorization page, click **Agree**, then copy the request URL whose path is `spotify-callback` into the bot DM. Do not post that URL in a server channel because it includes a short-lived authorization code.
+
+  Spotify currently returns playlist items only for playlists owned by the authorizing account or where that account is a collaborator. For a public playlist owned by someone else, save or copy it into the authorizing Spotify account first. Playlists with no options open a requester-only configuration modal. Position ranges are 1-based and inclusive.
+
+  ```text
+  .play https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC
+  .play https://open.spotify.com/album/1ATL5GLyefJaxhQzSPVrLX --count 8 --ordered
+  .play https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M --count 10 --shuffle
+  .play https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M --range 20-40 --count 15 --ordered
+  .spotifyclear
+  .spotifystatus
+  ```
+
+  The bot queues matches it finds and reports how many selected tracks could not be resolved. Spotify credentials, access tokens, and secrets are never sent to a server channel or logged.
 </details>
 
 <details>
@@ -189,6 +215,7 @@ Use one of the following options to run the bot with Docker Compose.
      restart: unless-stopped
      volumes:
       - ./logs:/app/logs
+      - ./data:/app/data
      env_file:
       - .env
   ```
@@ -199,6 +226,11 @@ Use one of the following options to run the bot with Docker Compose.
 
   # Optional: defaults to daily at 04:00 in the container's time zone.
   YTDLP_UPDATE_SCHEDULE="0 4 * * *"
+
+  # Required only for Spotify link support. This must be a Fernet key.
+  SPOTIFY_CREDENTIAL_ENCRYPTION_KEY=replace-with-a-fernet-key
+  SPOTIFY_MARKET=US
+  SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/spotify-callback
   ```
 
 4. **Pull and start the bot**:
@@ -221,6 +253,11 @@ Use one of the following options to run the bot with Docker Compose.
 
    # Optional: defaults to daily at 04:00 in the container's time zone.
    YTDLP_UPDATE_SCHEDULE="0 4 * * *"
+
+  # Required only for Spotify link support. This must be a Fernet key.
+  SPOTIFY_CREDENTIAL_ENCRYPTION_KEY=replace-with-a-fernet-key
+  SPOTIFY_MARKET=US
+  SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/spotify-callback
    ```
 
 3. **Build and start the bot**:
@@ -240,6 +277,13 @@ Once the bot is running, it will appear online in your Discord server and be abl
 | `LOG_MAX_BYTES` | `8388608` | `LOG_MAX_BYTES=16777216` | Maximum size, in bytes, of each `logs/discord.log` file before rotation. |
 | `LOG_BACKUP_COUNT` | `5` | `LOG_BACKUP_COUNT=10` | Number of rotated `discord.log` files to retain. |
 | `YTDLP_UPDATE_SCHEDULE` | `0 4 * * *` | `YTDLP_UPDATE_SCHEDULE="0 8 * * *"` | Cron expression for yt-dlp updates. Output is written to `logs/yt-dlp-update.log`. |
+| `SPOTIFY_CREDENTIAL_ENCRYPTION_KEY` | None | `SPOTIFY_CREDENTIAL_ENCRYPTION_KEY=...` | Fernet key used to encrypt per-guild Spotify Client IDs and Client Secrets at rest. Generate one with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Required for Spotify support. |
+| `SPOTIFY_DATABASE_PATH` | `/app/data/spotify.db` | `SPOTIFY_DATABASE_PATH=/app/data/spotify.db` | SQLite database containing encrypted guild credential records. Mount `/app/data` to retain it across container replacement. |
+| `SPOTIFY_PLAYLIST_MAX_TRACKS` | `20` | `SPOTIFY_PLAYLIST_MAX_TRACKS=50` | Maximum number of tracks accepted from a Spotify album or playlist import. |
+| `SPOTIFY_PLAYLIST_DEFAULT_TRACKS` | `20` | `SPOTIFY_PLAYLIST_DEFAULT_TRACKS=10` | Track count used by the playlist configuration modal and imports without an explicit count. |
+| `SPOTIFY_PLAYLIST_DEFAULT_SHUFFLE` | `false` | `SPOTIFY_PLAYLIST_DEFAULT_SHUFFLE=true` | Whether Spotify playlist imports shuffle eligible tracks by default. |
+| `SPOTIFY_MARKET` | `US` | `SPOTIFY_MARKET=CA` | Two-letter country code used to determine Spotify catalog availability for the Client Credentials flow. Set this to the bot's intended region. |
+| `SPOTIFY_REDIRECT_URI` | None | `SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/spotify-callback` | Exact callback URL registered in the Spotify Developer Dashboard for one-time playlist authorization. Spotify permits HTTP only for an explicit loopback IP, not `localhost` or a LAN/server IP. The authorizing user copies the redirected URL to the bot's DM. Required for playlists. |
 
 ## Troubleshooting
 

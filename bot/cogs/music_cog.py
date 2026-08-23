@@ -3,6 +3,10 @@ import io
 import logging
 import logging.handlers
 import re
+import os
+import secrets
+import time
+from urllib.parse import parse_qs, urlparse
 
 import requests
 
@@ -15,6 +19,17 @@ from PIL import Image
 
 import bot.utils.custom_paginator as Paginator
 import bot.utils.music_utilities as Utilities
+from bot.utils.spotify_client import (
+    SpotifyClient,
+    SpotifyCredentialsError,
+    SpotifyError,
+    SpotifyPlaylistAuthorizationError,
+    parse_playlist_options,
+    parse_resource,
+    select_tracks,
+    track_query,
+)
+from bot.utils.spotify_store import SpotifyStoreError
 
 # List of active sessions.
 sessions = []
@@ -31,6 +46,23 @@ logger = logging.getLogger("discord")
 class Music(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.spotify_import_locks = {}
+        self.spotify_store = getattr(self.bot, "spotify_store", None)
+        if self.spotify_store is None:
+            logger.warning("Spotify support is not configured for this bot.")
+
+
+    @property
+    def spotify_max_tracks(self):
+        return int(os.getenv("SPOTIFY_PLAYLIST_MAX_TRACKS", "20"))
+
+    @property
+    def spotify_default_tracks(self):
+        return min(int(os.getenv("SPOTIFY_PLAYLIST_DEFAULT_TRACKS", "20")), self.spotify_max_tracks)
+
+    @property
+    def spotify_default_shuffle(self):
+        return os.getenv("SPOTIFY_PLAYLIST_DEFAULT_SHUFFLE", "false").lower() == "true"
 
     async def get_session(self, ctx):
         """
@@ -262,13 +294,250 @@ class Music(commands.Cog):
             return False
         return True
 
+    async def get_spotify_credentials(self, ctx):
+        store = getattr(self.bot, "spotify_store", None)
+        if store is None:
+            await ctx.send("Spotify support is not configured by this bot operator.")
+            return None
+        try:
+            credentials = await asyncio.to_thread(store.get_credentials, ctx.guild.id)
+        except SpotifyStoreError:
+            await ctx.send("Stored Spotify credentials are unavailable. Run `.spotifyclear` and try again.")
+            return None
+        if credentials:
+            return credentials
+
+        try:
+            dm = await ctx.author.create_dm()
+            await dm.send(
+                "This server needs Spotify API credentials before it can resolve Spotify links. "
+                "Reply with your Client ID on the first line and Client Secret on the second line. "
+                "They will be encrypted and stored for this server only."
+            )
+            await ctx.send("I sent you a DM to configure Spotify for this server.")
+        except discord.Forbidden:
+            await ctx.send("I could not DM you. Enable DMs from server members and try again.")
+            return None
+
+        def valid_reply(message):
+            return message.author.id == ctx.author.id and message.channel.id == dm.id
+
+        try:
+            reply = await self.bot.wait_for("message", check=valid_reply, timeout=300)
+        except asyncio.TimeoutError:
+            await ctx.send("Spotify configuration timed out. Run `.play` with the Spotify link again to retry.")
+            return None
+
+        values = [line.strip() for line in reply.content.splitlines() if line.strip()]
+        if len(values) != 2:
+            await dm.send("I need exactly two non-empty lines: Client ID, then Client Secret.")
+            return None
+        client_id, client_secret = values
+        try:
+            client = SpotifyClient(client_id, client_secret)
+            await asyncio.to_thread(client.validate_credentials)
+            await asyncio.to_thread(store.save_credentials, ctx.guild.id, client_id, client_secret, ctx.author.id)
+        except (SpotifyError, requests.RequestException, SpotifyStoreError):
+            await dm.send("Spotify could not validate those credentials. Nothing was saved; try again with a new `.play` request.")
+            return None
+        await dm.send("Spotify credentials were saved for this server.")
+        await ctx.send("Spotify is configured for this server. Re-run your `.play` command.")
+        return None
+
+    async def ensure_spotify_voice_access(self, ctx):
+        if not await self.ensure_user_in_voice(ctx):
+            return False
+        voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
+        if voice and voice.is_connected() and ctx.author.voice.channel != voice.channel:
+            await ctx.send("Join my voice channel before changing Spotify configuration.")
+            return False
+        return True
+
+    async def get_spotify_playlist_token(self, ctx, credentials):
+        store = self.bot.spotify_store
+        now = int(time.time())
+        try:
+            token_record = await asyncio.to_thread(store.get_playlist_token, ctx.guild.id)
+        except SpotifyStoreError:
+            token_record = None
+        client = SpotifyClient(*credentials, market=os.getenv("SPOTIFY_MARKET", "US"))
+        if token_record:
+            access_token, refresh_token, expires_at = token_record
+            if expires_at > now + 60:
+                return access_token
+            try:
+                access_token, refresh_token, expires_in = await asyncio.to_thread(
+                    client.refresh_playlist_access_token, refresh_token
+                )
+                await asyncio.to_thread(
+                    store.save_playlist_token,
+                    ctx.guild.id,
+                    access_token,
+                    refresh_token,
+                    now + expires_in,
+                    ctx.author.id,
+                )
+                return access_token
+            except (SpotifyPlaylistAuthorizationError, requests.RequestException):
+                pass
+
+        redirect_uri = os.getenv("SPOTIFY_REDIRECT_URI")
+        if not redirect_uri:
+            await ctx.send("Spotify playlist support needs `SPOTIFY_REDIRECT_URI` configured by the bot operator.")
+            return None
+        state = secrets.token_urlsafe(24)
+        authorization_url = client.playlist_authorization_url(redirect_uri, state)
+        try:
+            dm = await ctx.author.create_dm()
+            await dm.send(
+                "Authorize Spotify playlist access for this server using this link:\n"
+                f"<{authorization_url}>\n\n"
+                "After Spotify redirects, copy the complete URL beginning with `http://127.0.0.1` "
+                "from your browser address bar and reply with it here. A browser connection error after the "
+                "redirect is expected. If the address bar does not update, open Developer Tools, select the "
+                "Network tab, refresh the authorization page, click Agree, then copy the request URL for "
+                "`spotify-callback`."
+            )
+            await ctx.send("I sent you a DM to authorize Spotify playlist access for this server.")
+        except discord.Forbidden:
+            await ctx.send("I could not DM you. Enable DMs from server members and try again.")
+            return None
+
+        def valid_reply(message):
+            return message.author.id == ctx.author.id and message.channel.id == dm.id
+
+        try:
+            reply = await self.bot.wait_for("message", check=valid_reply, timeout=600)
+            callback = urlparse(reply.content.strip())
+            parameters = parse_qs(callback.query)
+            if callback.geturl().split("?", 1)[0] != redirect_uri or parameters.get("state", [None])[0] != state:
+                raise ValueError("callback did not match the authorization request")
+            code = parameters["code"][0]
+        except (asyncio.TimeoutError, KeyError, ValueError):
+            await dm.send("Spotify playlist authorization was cancelled or invalid. Run `.play` with the playlist again to retry.")
+            return None
+
+        try:
+            access_token, refresh_token, expires_in = await asyncio.to_thread(
+                client.exchange_playlist_authorization_code, code, redirect_uri
+            )
+            await asyncio.to_thread(
+                store.save_playlist_token,
+                ctx.guild.id,
+                access_token,
+                refresh_token,
+                now + expires_in,
+                ctx.author.id,
+            )
+        except (SpotifyPlaylistAuthorizationError, requests.RequestException, SpotifyStoreError):
+            await dm.send("Spotify could not complete playlist authorization. Nothing was saved; run `.play` with the playlist again to retry.")
+            return None
+        await dm.send("Spotify playlist access was authorized for this server.")
+        return access_token
+
+    async def resolve_youtube_track(self, query):
+        def extract():
+            with youtube_dl.YoutubeDL({'format': 'bestaudio', 'noplaylist': True}) as ydl:
+                return ydl.extract_info(f"ytsearch:{query}", download=False)['entries'][0]
+
+        return await asyncio.to_thread(extract)
+
+    async def import_spotify(self, ctx, resource, options):
+        credentials = await self.get_spotify_credentials(ctx)
+        if not credentials:
+            return
+        lock = self.spotify_import_locks.setdefault(ctx.guild.id, asyncio.Lock())
+        async with lock:
+            try:
+                client = SpotifyClient(*credentials, market=os.getenv("SPOTIFY_MARKET", "US"))
+                playlist_token = None
+                if resource.resource_type == "playlist":
+                    playlist_token = await self.get_spotify_playlist_token(ctx, credentials)
+                    if not playlist_token:
+                        return
+                tracks = await asyncio.to_thread(client.get_tracks, resource, playlist_token)
+            except (SpotifyError, requests.RequestException) as error:
+                await ctx.send(f"Spotify could not load that link: {error}")
+                return
+            selected_tracks = select_tracks(tracks, options)
+            if not selected_tracks:
+                await ctx.send("No playable Spotify tracks matched that selection.")
+                return
+
+            resolved = []
+            skipped = 0
+            async with ctx.typing():
+                for track in selected_tracks:
+                    try:
+                        resolved.append(await self.resolve_youtube_track(track_query(track)))
+                    except Exception:
+                        skipped += 1
+            if not resolved:
+                await ctx.send("No selected Spotify tracks could be matched on YouTube.")
+                return
+
+            session = await self.get_session(ctx)
+            if session is None:
+                return
+            voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
+            for info in resolved:
+                thumbnails = info.get('thumbnails') or []
+                thumb = thumbnails[0]['url'] if thumbnails else ''
+                session.q.enqueue(
+                    info['title'], info['url'], thumb, info['webpage_url'],
+                    info.get('duration') or 0, ctx.author.id,
+                )
+            if not voice:
+                await ctx.author.voice.channel.connect()
+                voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
+                asyncio.create_task(self.auto_disconnect(ctx, voice))
+            if not voice.is_playing() and not voice.is_paused():
+                await self.play_current_track(ctx, session)
+
+            summary = f"Spotify import: queued {len(resolved)} match{'es' if len(resolved) != 1 else ''}"
+            if skipped:
+                summary += f"; skipped {skipped} track{'s' if skipped != 1 else ''} with no YouTube match"
+            await ctx.send(summary + ". Use `.q` to view the queue.")
+
+    @commands.command(name='spotifyclear')
+    async def spotify_clear(self, ctx):
+        """Delete this server's stored Spotify application credentials."""
+        if not await self.ensure_spotify_voice_access(ctx):
+            return
+        store = getattr(self.bot, "spotify_store", None)
+        if store is None:
+            await ctx.send("Spotify support is not configured by this bot operator.")
+            return
+        deleted = await asyncio.to_thread(store.clear_credentials, ctx.guild.id)
+        await ctx.send("Spotify credentials cleared for this server." if deleted else "No Spotify credentials are configured for this server.")
+
+    @commands.command(name='spotifystatus')
+    async def spotify_status(self, ctx):
+        """Show whether this server has Spotify application credentials configured."""
+        if not await self.ensure_spotify_voice_access(ctx):
+            return
+        store = getattr(self.bot, "spotify_store", None)
+        if store is None:
+            await ctx.send("Spotify support is not configured by this bot operator.")
+            return
+        status = await asyncio.to_thread(store.status, ctx.guild.id)
+        if status:
+            configured_by, updated_at = status
+            await ctx.send(
+                f"Spotify is configured for this server by <@{configured_by}> (updated {updated_at} UTC)."
+            )
+        else:
+            await ctx.send("Spotify is not configured for this server.")
+
     @commands.command(name='play')
     async def play(self, ctx, *, query):
-        """
-        Searches for a song and plays the first result in the voice channel.
+        """Play a search result, YouTube URL, or Spotify track, album, or playlist.
 
         :param ctx: discord.ext.commands.Context
-        :param query: str Search query or YouTube URL
+        :param query: Search text, a YouTube URL, or a Spotify URL.
+
+        Spotify album and playlist imports support --count N, --range START-END,
+        --ordered, and --shuffle. Playlists without options open a configuration prompt.
         """
         try:
             voice_channel = ctx.author.voice.channel
@@ -277,6 +546,33 @@ class Music(commands.Cog):
             await ctx.message.add_reaction("❌")
             return
         
+        spotify_value, _, spotify_arguments = query.strip().partition(" ")
+        spotify_resource = parse_resource(spotify_value)
+        if spotify_resource:
+            try:
+                options = parse_playlist_options(
+                    spotify_arguments,
+                    self.spotify_max_tracks,
+                    self.spotify_default_tracks,
+                    self.spotify_default_shuffle,
+                )
+            except (SpotifyError, ValueError) as error:
+                await ctx.send(f"Invalid Spotify playlist options: {error}")
+                return
+            if spotify_resource.resource_type == "playlist" and not spotify_arguments:
+                if not await self.get_spotify_credentials(ctx):
+                    return
+                await ctx.send(
+                    "Configure this Spotify playlist import. Choose **ordered** to keep Spotify's order "
+                    "or **shuffle** to randomize the selected tracks.",
+                    view=SpotifyPlaylistLauncher(self, ctx, spotify_resource),
+                )
+                return
+            if spotify_resource.resource_type == "track":
+                options = {"count": 1, "start": 1, "end": None, "shuffle": False}
+            await self.import_spotify(ctx, spotify_resource, options)
+            return
+
         session = await self.get_session(ctx)
         if session is None:
             return
@@ -738,6 +1034,68 @@ def setup(bot):
     bot.add_cog(Music(bot))
 
 
+class SpotifyPlaylistLauncher(discord.ui.View):
+    def __init__(self, music_cog, ctx, resource):
+        super().__init__(timeout=300)
+        self.music_cog = music_cog
+        self.ctx = ctx
+        self.resource = resource
+        self.owner_id = ctx.author.id
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Only the user who requested this playlist can configure it.", ephemeral=True)
+            return False
+        user_voice = getattr(interaction.user, "voice", None)
+        if not user_voice:
+            await interaction.response.send_message("Join a voice channel before importing this playlist.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Configure import", emoji="🎵", style=discord.ButtonStyle.secondary)
+    async def configure(self, interaction, button):
+        await interaction.response.send_modal(SpotifyPlaylistModal(self.music_cog, self.ctx, self.resource))
+
+
+class SpotifyPlaylistModal(discord.ui.Modal, title="Spotify playlist import"):
+    count = discord.ui.TextInput(label="Track count", placeholder="1-20", default="20", max_length=2)
+    range_value = discord.ui.TextInput(
+        label="Position range (optional)", placeholder="20-40", required=False, max_length=15
+    )
+    ordering = discord.ui.TextInput(
+        label="Ordering: ordered or shuffle",
+        placeholder="ordered = Spotify order; shuffle = random",
+        default="ordered",
+        max_length=7,
+    )
+
+    def __init__(self, music_cog, ctx, resource):
+        super().__init__()
+        self.music_cog = music_cog
+        self.ctx = ctx
+        self.resource = resource
+        self.count.default = str(music_cog.spotify_default_tracks)
+        self.ordering.default = "shuffle" if music_cog.spotify_default_shuffle else "ordered"
+
+    async def on_submit(self, interaction):
+        arguments = f"--count {self.count.value} --{self.ordering.value.strip().lower()}"
+        if self.range_value.value.strip():
+            arguments += f" --range {self.range_value.value.strip()}"
+        try:
+            options = parse_playlist_options(
+                arguments,
+                self.music_cog.spotify_max_tracks,
+                self.music_cog.spotify_default_tracks,
+                self.music_cog.spotify_default_shuffle,
+            )
+        except (SpotifyError, ValueError) as error:
+            await interaction.response.send_message(f"Invalid playlist configuration: {error}", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        await self.music_cog.import_spotify(self.ctx, self.resource, options)
+        await interaction.followup.send("Playlist import started in the channel.", ephemeral=True)
+
+
 class MusicControls(discord.ui.View):
     def __init__(self, music_cog, guild_id):
         super().__init__(timeout=600)
@@ -800,7 +1158,7 @@ class MusicControls(discord.ui.View):
             await interaction.response.send_message("There are no upcoming songs to shuffle.", ephemeral=True)
             return
         session.q.shuffle_upcoming()
-        await interaction.response.send_message("Upcoming songs shuffled.", ephemeral=True)
+        await interaction.response.send_message("Upcoming songs shuffled.")
 
     @discord.ui.button(emoji="⏹️", style=discord.ButtonStyle.danger, row=0)
     async def stop(self, interaction, button):

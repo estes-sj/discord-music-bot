@@ -1,6 +1,7 @@
 # Application directories
 backups/
 logs/
+data/
 
 # Python bytecode and caches
 __pycache__/

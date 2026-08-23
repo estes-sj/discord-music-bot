@@ -12,6 +12,7 @@ from discord.ext import commands
 # Local imports
 from bot.cogs import Music, ServerAssistant
 from bot import __version__
+from bot.utils.spotify_store import SpotifyStoreError, create_store_from_environment
 
 ######################### SETUP #########################
 load_dotenv()
@@ -43,6 +44,11 @@ client = commands.Bot(
 
 # Load bot token from environment variables
 TOKEN = os.getenv("DISCORD_TOKEN")
+try:
+    client.spotify_store = create_store_from_environment()
+except SpotifyStoreError as error:
+    client.spotify_store = None
+    logging.getLogger("discord").warning("Spotify support is unavailable: %s", error)
 #########################################################
 
 ######################## LOGGER #########################
@@ -76,9 +82,13 @@ async def on_ready():
     """
     To execute once the bot is online
     """
-    await client.add_cog(Music(client))
-    await client.add_cog(ServerAssistant(client))
-    await client.tree.sync()
+    if not client.get_cog("Music"):
+        await client.add_cog(Music(client))
+    if not client.get_cog("ServerAssistant"):
+        await client.add_cog(ServerAssistant(client))
+    if not getattr(client, "commands_synced", False):
+        await client.tree.sync()
+        client.commands_synced = True
     logger.info('We have successfully logged in as {0.user} (Bot version: v{1})'.format(client, __version__))
 
 # Runs bot's loop.
