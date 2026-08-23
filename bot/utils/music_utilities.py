@@ -1,4 +1,5 @@
 from collections import namedtuple
+import random
 
 class Queue:
     """
@@ -67,6 +68,9 @@ class Queue:
 
         self.last_title_enqueued = ''
         self.queue = []
+        self.loop_current = False
+        self.continuation_pending = False
+        self.skip_requested = False
 
     def set_last_as_current(self):
         """
@@ -178,6 +182,16 @@ class Queue:
             self.current_music = current
 
             self.queue = [current]  # Keep the currently playing song
+
+    def shuffle_upcoming(self):
+        """Shuffle queued songs after the currently playing song."""
+        if self.current_music not in self.queue:
+            return
+
+        current_index = self.queue.index(self.current_music)
+        upcoming = self.queue[current_index + 1:]
+        random.shuffle(upcoming)
+        self.queue[current_index + 1:] = upcoming
 
     def is_empty(self):
         """

@@ -94,20 +94,22 @@ class Music(commands.Cog):
         sessions.append(session)
         return session
 
-    def prepare_continue_queue(self, ctx):
+    def prepare_continue_queue(self, ctx, completed_track, error):
         """
-        Calls the next song in the queue after the current one ends.
+        Schedules queue continuation after the current track ends normally.
 
         :param ctx: discord.ext.commands.Context
         """
         logger.info("Guild %s: scheduling music queue continuation", ctx.guild.id)
-        fut = asyncio.run_coroutine_threadsafe(self.continue_queue(ctx), self.bot.loop)
+        fut = asyncio.run_coroutine_threadsafe(
+            self.continue_queue(ctx, completed_track, error), self.bot.loop
+        )
         try:
             fut.result()
         except Exception as e:
             logger.error("Guild %s: failed to continue the music queue: %s", ctx.guild.id, e)
 
-    async def continue_queue(self, ctx):
+    async def continue_queue(self, ctx, completed_track, error):
         """
         Plays the next song in the queue if available.
 
@@ -117,22 +119,52 @@ class Music(commands.Cog):
         if session is None:
             return
 
-        if not session.q.theres_next():
-            await ctx.send("*Queue has ended* ✅")
-            await asyncio.sleep(0)
-            if session in sessions:
-                sessions.remove(session)
+        voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
+        if (
+            error
+            or session.q.is_empty()
+            or session.q.current_music != completed_track
+            or not voice
+            or not voice.is_connected()
+            or session.q.continuation_pending
+        ):
+            if error:
+                logger.warning("Guild %s: audio playback ended with error: %s", ctx.guild.id, error)
             return
 
-        session.q.next()
-        logger.info("Guild %s: continuing with %s", ctx.guild.id, session.q.current_music.title)
+        session.q.continuation_pending = True
+        try:
+            if not session.q.theres_next():
+                if session.q.loop_current and not session.q.skip_requested:
+                    await self.play_current_track(ctx, session)
+                    return
+                await ctx.send("*Queue has ended* ✅")
+                await asyncio.sleep(0)
+                if session in sessions:
+                    sessions.remove(session)
+                return
+
+            if session.q.loop_current and not session.q.skip_requested:
+                await self.play_current_track(ctx, session)
+                return
+
+            session.q.next()
+            logger.info("Guild %s: continuing with %s", ctx.guild.id, session.q.current_music.title)
+            await self.play_current_track(ctx, session)
+        finally:
+            session.q.skip_requested = False
+            session.q.continuation_pending = False
+
+    async def play_current_track(self, ctx, session):
+        """Start the session's current track and send its now-playing controls."""
         voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
         source = await discord.FFmpegOpusAudio.from_probe(session.q.current_music.url, **FFMPEG_OPTIONS)
 
-        if voice.is_playing():
-            voice.stop()
-
-        voice.play(source, after=lambda e: self.prepare_continue_queue(ctx))
+        completed_track = session.q.current_music
+        voice.play(
+            source,
+            after=lambda error: self.prepare_continue_queue(ctx, completed_track, error),
+        )
 
         # Convert duration to HH:MM:SS format
         duration = session.q.current_music.duration
@@ -155,7 +187,7 @@ class Music(commands.Cog):
         embed.add_field(name="Duration", value=duration_str, inline=True)
         embed.add_field(name="Added By", value=f"<@{ctx.author.id}>", inline=True)
 
-        await ctx.send(embed=embed)
+        await ctx.send(embed=embed, view=MusicControls(self, ctx.guild.id))
 
     async def auto_disconnect(self, ctx, voice):
         """
@@ -295,12 +327,15 @@ class Music(commands.Cog):
                 )
                 embed.add_field(name="Duration", value=duration_str, inline=True)
                 embed.add_field(name="Added By", value=f"<@{ctx.author.id}>", inline=True)
-                await ctx.send(embed=embed)
+                await ctx.send(embed=embed, view=MusicControls(self, ctx.guild.id))
                 session.q.set_last_as_current()
                 source = await discord.FFmpegOpusAudio.from_probe(url, **FFMPEG_OPTIONS)
-                voice.play(source, after=lambda e: self.prepare_continue_queue(ctx))
+                completed_track = session.q.current_music
+                voice.play(
+                    source,
+                    after=lambda error: self.prepare_continue_queue(ctx, completed_track, error),
+                )
                 await ctx.message.add_reaction("▶️")
-
     @commands.command(name='skip', aliases=['next'])
     async def skip(self, ctx):
         """
@@ -322,6 +357,7 @@ class Music(commands.Cog):
         
         voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
         if voice.is_playing():
+            session.q.skip_requested = True
             voice.stop()
             await ctx.message.add_reaction("⏭️")
 
@@ -658,6 +694,83 @@ class Music(commands.Cog):
 
 def setup(bot):
     bot.add_cog(Music(bot))
+
+
+class MusicControls(discord.ui.View):
+    def __init__(self, music_cog, guild_id):
+        super().__init__(timeout=600)
+        self.music_cog = music_cog
+        self.guild_id = guild_id
+
+    def get_session(self):
+        return next((session for session in sessions if session.guild == self.guild_id), None)
+
+    async def interaction_check(self, interaction):
+        voice = interaction.guild.voice_client if interaction.guild else None
+        user_voice = getattr(interaction.user, "voice", None)
+        if not voice or not voice.is_connected() or not user_voice or user_voice.channel != voice.channel:
+            await interaction.response.send_message(
+                "Join my voice channel before using music controls.", ephemeral=True
+            )
+            return False
+        return True
+
+    @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.secondary, row=0)
+    async def skip(self, interaction, button):
+        session = self.get_session()
+        voice = interaction.guild.voice_client
+        if not session or not session.q.theres_next():
+            await interaction.response.send_message("There are no more songs in the queue.", ephemeral=True)
+            return
+        session.q.skip_requested = True
+        voice.stop()
+        await interaction.response.send_message("Skipped.", ephemeral=True)
+
+    @discord.ui.button(emoji="⏸️", style=discord.ButtonStyle.secondary, row=0)
+    async def pause_resume(self, interaction, button):
+        voice = interaction.guild.voice_client
+        if voice.is_playing():
+            voice.pause()
+            button.emoji = "▶️"
+            await interaction.response.edit_message(view=self)
+            return
+        if voice.is_paused():
+            voice.resume()
+            button.emoji = "⏸️"
+            await interaction.response.edit_message(view=self)
+            return
+        await interaction.response.send_message("There is no audio currently playing.", ephemeral=True)
+
+    @discord.ui.button(emoji="🔁", style=discord.ButtonStyle.secondary, row=0)
+    async def loop(self, interaction, button):
+        session = self.get_session()
+        if not session:
+            await interaction.response.send_message("The music session has ended.", ephemeral=True)
+            return
+        session.q.loop_current = not session.q.loop_current
+        button.style = discord.ButtonStyle.success if session.q.loop_current else discord.ButtonStyle.secondary
+        await interaction.response.edit_message(view=self)
+
+    @discord.ui.button(emoji="🔀", style=discord.ButtonStyle.secondary, row=0)
+    async def shuffle(self, interaction, button):
+        session = self.get_session()
+        if not session or not session.q.theres_next():
+            await interaction.response.send_message("There are no upcoming songs to shuffle.", ephemeral=True)
+            return
+        session.q.shuffle_upcoming()
+        await interaction.response.send_message("Upcoming songs shuffled.", ephemeral=True)
+
+    @discord.ui.button(emoji="⏹️", style=discord.ButtonStyle.danger, row=0)
+    async def stop(self, interaction, button):
+        session = self.get_session()
+        voice = interaction.guild.voice_client
+        if session:
+            session.q.clear_queue()
+        voice.stop()
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(view=self)
+
 
 class YouTubeSearchDropdown(discord.ui.View):
     def __init__(self, ctx, bot, results):
