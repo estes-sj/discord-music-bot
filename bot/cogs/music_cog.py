@@ -442,6 +442,58 @@ class Music(commands.Cog):
 
         return await asyncio.to_thread(extract)
 
+    @staticmethod
+    def is_youtube_playlist_url(value):
+        parsed = urlparse(value)
+        return parsed.netloc.lower() in {"youtube.com", "www.youtube.com", "m.youtube.com"} and bool(
+            parse_qs(parsed.query).get("list")
+        )
+
+    async def get_youtube_playlist_entries(self, url):
+        def extract():
+            with youtube_dl.YoutubeDL({'format': 'bestaudio', 'extract_flat': False}) as ydl:
+                return ydl.extract_info(url, download=False).get('entries', [])
+
+        return await asyncio.to_thread(extract)
+
+    async def import_youtube_playlist(self, ctx, url, options):
+        try:
+            entries = await self.get_youtube_playlist_entries(url)
+        except Exception:
+            await ctx.send("YouTube could not load that playlist.")
+            return
+        selected_entries = select_tracks([entry for entry in entries if entry], options)
+        if not selected_entries:
+            await ctx.send("No playable YouTube videos matched that selection.")
+            return
+
+        session = await self.get_session(ctx)
+        if session is None:
+            return
+        voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
+        queued = 0
+        async with ctx.typing():
+            for info in selected_entries:
+                try:
+                    thumbnails = info.get('thumbnails') or []
+                    session.q.enqueue(
+                        info['title'], info['url'], thumbnails[0]['url'] if thumbnails else '',
+                        info['webpage_url'], info.get('duration') or 0, ctx.author.id,
+                    )
+                    queued += 1
+                except KeyError:
+                    continue
+        if not queued:
+            await ctx.send("No selected YouTube videos could be queued.")
+            return
+        if not voice:
+            await ctx.author.voice.channel.connect()
+            voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
+            asyncio.create_task(self.auto_disconnect(ctx, voice))
+        if not voice.is_playing() and not voice.is_paused():
+            await self.play_current_track(ctx, session)
+        await ctx.send(f"YouTube playlist import: queued {queued} video{'s' if queued != 1 else ''}. Use `.q` to view the queue.")
+
     async def import_spotify(self, ctx, resource, options):
         credentials = await self.get_spotify_credentials(ctx)
         if not credentials:
@@ -571,6 +623,27 @@ class Music(commands.Cog):
             if spotify_resource.resource_type == "track":
                 options = {"count": 1, "start": 1, "end": None, "shuffle": False}
             await self.import_spotify(ctx, spotify_resource, options)
+            return
+
+        if self.is_youtube_playlist_url(spotify_value):
+            try:
+                options = parse_playlist_options(
+                    spotify_arguments,
+                    self.spotify_max_tracks,
+                    self.spotify_default_tracks,
+                    self.spotify_default_shuffle,
+                )
+            except (SpotifyError, ValueError) as error:
+                await ctx.send(f"Invalid YouTube playlist options: {error}")
+                return
+            if not spotify_arguments:
+                await ctx.send(
+                    "Configure this YouTube playlist import. Choose **ordered** to keep YouTube's order "
+                    "or **shuffle** to randomize the selected videos.",
+                    view=YouTubePlaylistLauncher(self, ctx, spotify_value),
+                )
+                return
+            await self.import_youtube_playlist(ctx, spotify_value, options)
             return
 
         session = await self.get_session(ctx)
@@ -840,6 +913,37 @@ class Music(commands.Cog):
             view=QueueRemoveLauncher(self, ctx.guild.id, ctx.channel, ctx.author.id),
         )
 
+    @commands.hybrid_command(name='move')
+    async def move(self, ctx):
+        """Open a private selector to move an upcoming queued track."""
+        if not await self.ensure_user_in_voice(ctx):
+            return
+        if not await self.ensure_bot_in_voice(ctx):
+            return
+
+        session = await self.get_session(ctx)
+        if session is None:
+            return
+        current_index = session.q.queued_track_index(session.q.current_music)
+        tracks = session.q.queue[current_index + 1:] if current_index is not None else []
+        if not tracks:
+            await ctx.send("*There are no upcoming songs to move.*")
+            await ctx.message.add_reaction("🤷‍♂️")
+            return
+
+        if ctx.interaction:
+            await ctx.send(
+                "Choose an upcoming song to move.",
+                ephemeral=True,
+                view=QueueMoveSelector(self, ctx.guild.id, ctx.author.id, tracks[:25]),
+            )
+            return
+
+        await ctx.send(
+            "Select a queued song to move.",
+            view=QueueMoveLauncher(self, ctx.guild.id, ctx.author.id),
+        )
+
     @commands.command(name='clearqueue', aliases=['clearnext', 'clearNext', 'cn', 'clear_queue', 'cq', 'clear_next', 'clearQueue'])
     async def clearqueue(self, ctx):
         """
@@ -1093,6 +1197,68 @@ class SpotifyPlaylistModal(discord.ui.Modal, title="Spotify playlist import"):
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
         await self.music_cog.import_spotify(self.ctx, self.resource, options)
+        await interaction.followup.send("Playlist import started in the channel.", ephemeral=True)
+
+
+class YouTubePlaylistLauncher(discord.ui.View):
+    def __init__(self, music_cog, ctx, playlist_url):
+        super().__init__(timeout=300)
+        self.music_cog = music_cog
+        self.ctx = ctx
+        self.playlist_url = playlist_url
+        self.owner_id = ctx.author.id
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Only the user who requested this playlist can configure it.", ephemeral=True)
+            return False
+        user_voice = getattr(interaction.user, "voice", None)
+        if not user_voice:
+            await interaction.response.send_message("Join a voice channel before importing this playlist.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Configure import", emoji="🎵", style=discord.ButtonStyle.secondary)
+    async def configure(self, interaction, button):
+        await interaction.response.send_modal(YouTubePlaylistModal(self.music_cog, self.ctx, self.playlist_url))
+
+
+class YouTubePlaylistModal(discord.ui.Modal, title="YouTube playlist import"):
+    count = discord.ui.TextInput(label="Video count", placeholder="1-20", default="20", max_length=2)
+    range_value = discord.ui.TextInput(
+        label="Position range (optional)", placeholder="20-40", required=False, max_length=15
+    )
+    ordering = discord.ui.TextInput(
+        label="Ordering: ordered or shuffle",
+        placeholder="ordered = YouTube order; shuffle = random",
+        default="ordered",
+        max_length=7,
+    )
+
+    def __init__(self, music_cog, ctx, playlist_url):
+        super().__init__()
+        self.music_cog = music_cog
+        self.ctx = ctx
+        self.playlist_url = playlist_url
+        self.count.default = str(music_cog.spotify_default_tracks)
+        self.ordering.default = "shuffle" if music_cog.spotify_default_shuffle else "ordered"
+
+    async def on_submit(self, interaction):
+        arguments = f"--count {self.count.value} --{self.ordering.value.strip().lower()}"
+        if self.range_value.value.strip():
+            arguments += f" --range {self.range_value.value.strip()}"
+        try:
+            options = parse_playlist_options(
+                arguments,
+                self.music_cog.spotify_max_tracks,
+                self.music_cog.spotify_default_tracks,
+                self.music_cog.spotify_default_shuffle,
+            )
+        except (SpotifyError, ValueError) as error:
+            await interaction.response.send_message(f"Invalid playlist configuration: {error}", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        await self.music_cog.import_youtube_playlist(self.ctx, self.playlist_url, options)
         await interaction.followup.send("Playlist import started in the channel.", ephemeral=True)
 
 
@@ -1371,6 +1537,109 @@ class QueueRemoveSelector(discord.ui.View):
 
         await self.response_channel.send(f"*Removed from queue:* **{truncate_text(track.title)}**")
         await interaction.response.edit_message(content="Track removed from the queue.", view=None)
+
+
+class QueueMoveLauncher(discord.ui.View):
+    def __init__(self, music_cog, guild_id, owner_id):
+        super().__init__(timeout=120)
+        self.music_cog = music_cog
+        self.guild_id = guild_id
+        self.owner_id = owner_id
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Only the user who ran the command can use this button.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Choose song", emoji="↕️", style=discord.ButtonStyle.secondary)
+    async def open_selector(self, interaction, button):
+        session = next((session for session in sessions if session.guild == self.guild_id), None)
+        current_index = session.q.queued_track_index(session.q.current_music) if session else None
+        tracks = session.q.queue[current_index + 1:] if current_index is not None else []
+        if not tracks:
+            await interaction.response.send_message("There are no upcoming songs to move.", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            "Choose an upcoming song to move.",
+            ephemeral=True,
+            view=QueueMoveSelector(self.music_cog, self.guild_id, self.owner_id, tracks[:25]),
+        )
+
+
+class QueueMoveSelector(discord.ui.View):
+    def __init__(self, music_cog, guild_id, owner_id, tracks):
+        super().__init__(timeout=120)
+        self.music_cog = music_cog
+        self.guild_id = guild_id
+        self.owner_id = owner_id
+        self.tracks = tracks
+        self.track_select = discord.ui.Select(
+            placeholder="Move which song...",
+            options=[
+                discord.SelectOption(label=track.title[:100], value=str(index))
+                for index, track in enumerate(tracks)
+            ],
+        )
+        self.track_select.callback = self.select_track
+        self.add_item(self.track_select)
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Only the user who opened this menu can use it.", ephemeral=True)
+            return False
+        guild = self.music_cog.bot.get_guild(self.guild_id)
+        voice = guild.voice_client if guild else None
+        member = guild.get_member(interaction.user.id) if guild else None
+        if not voice or not voice.is_connected() or not member or not member.voice or member.voice.channel != voice.channel:
+            await interaction.response.send_message("Join my voice channel before moving a queued song.", ephemeral=True)
+            return False
+        return True
+
+    async def select_track(self, interaction):
+        session = next((session for session in sessions if session.guild == self.guild_id), None)
+        track = self.tracks[int(self.track_select.values[0])]
+        current_index = session.q.queued_track_index(session.q.current_music) if session else None
+        track_index = session.q.queued_track_index(track) if session else None
+        if current_index is None or track_index is None or track_index <= current_index:
+            await interaction.response.edit_message(content="That track is no longer available to move.", view=None)
+            return
+        anchors = [item for item in session.q.queue[current_index:] if item is not track][:25]
+        await interaction.response.edit_message(
+            content=f"Choose the song after which to place **{truncate_text(track.title)}**.",
+            view=QueueMoveDestinationSelector(self, track, anchors),
+        )
+
+
+class QueueMoveDestinationSelector(discord.ui.View):
+    def __init__(self, move_selector, track, anchors):
+        super().__init__(timeout=120)
+        self.move_selector = move_selector
+        self.track = track
+        self.anchors = anchors
+        self.anchor_select = discord.ui.Select(
+            placeholder="Place after...",
+            options=[
+                discord.SelectOption(label=anchor.title[:100], value=str(index))
+                for index, anchor in enumerate(anchors)
+            ],
+        )
+        self.anchor_select.callback = self.select_anchor
+        self.add_item(self.anchor_select)
+
+    async def interaction_check(self, interaction):
+        return await self.move_selector.interaction_check(interaction)
+
+    async def select_anchor(self, interaction):
+        session = next((session for session in sessions if session.guild == self.move_selector.guild_id), None)
+        anchor = self.anchors[int(self.anchor_select.values[0])]
+        if not session or not session.q.move_queued_track_after(self.track, anchor):
+            await interaction.response.edit_message(content="That track is no longer available to move.", view=None)
+            return
+        await interaction.response.edit_message(
+            content=f"Moved **{truncate_text(self.track.title)}** to play after **{truncate_text(anchor.title)}**.",
+            view=None,
+        )
 
 
 class YouTubeSearchDropdown(discord.ui.View):

@@ -35,7 +35,13 @@ See [Usage](#usage) for more information and examples on specific commands and f
 <details>
   <summary><code>.play &lt;song name, YouTube URL, or Spotify URL&gt;</code> - Plays a song or adds it to queue</summary>
 
-  Searches for a song and plays the first result in the voice channel.
+  Searches for a song and plays the first result in the voice channel. YouTube playlist URLs open the same import configuration used for Spotify playlists; use `--count`, `--range START-END`, `--ordered`, or `--shuffle` to skip the prompt.
+
+  ```text
+  .play https://www.youtube.com/playlist?list=PLAYLIST_ID
+  .play https://www.youtube.com/playlist?list=PLAYLIST_ID --count 20 --ordered
+  .play https://www.youtube.com/playlist?list=PLAYLIST_ID --range 20-40 --count 10 --shuffle
+  ```
 
   <div class="image-container" align="center">
       <img src="docs/play_now.png" alt="Play Now Example" width="40%"/>
@@ -164,6 +170,14 @@ See [Usage](#usage) for more information and examples on specific commands and f
   - Prefix command aliases: `.remove`, `.rm`
 
   `/remove` immediately opens an ephemeral dropdown of upcoming songs. The prefix commands open a small in-channel button first, because Discord only supports ephemeral messages as interaction responses. After a selection, the bot posts the removed song in the server channel.
+</details>
+
+<details>
+  <summary><code>/move</code> - Moves a selected upcoming song in the queue</summary>
+
+  - Prefix command: `.move`
+
+  Select an upcoming song, then select the song after which it should play. `/move` opens the private selector immediately; `.move` first posts a requester-only launcher button.
 </details>
 
 **Other Utility Commands**

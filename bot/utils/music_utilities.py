@@ -109,11 +109,10 @@ class Queue:
             The user ID for the song to be added to queue
         :return: None
         """
-        if len(self.queue) > 0:
-            self.queue.append(self.music(music_title, music_url, music_thumb, music_ytube, music_duration, music_user))
-        else:
-            self.queue.append(self.music(music_title, music_url, music_thumb, music_ytube, music_duration, music_user))
-            self.current_music = self.music(music_title, music_url, music_thumb, music_ytube, music_duration, music_user)
+        track = self.music(music_title, music_url, music_thumb, music_ytube, music_duration, music_user)
+        self.queue.append(track)
+        if len(self.queue) == 1:
+            self.current_music = track
 
     def dequeue(self):
         """
