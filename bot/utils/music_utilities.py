@@ -193,6 +193,56 @@ class Queue:
         random.shuffle(upcoming)
         self.queue[current_index + 1:] = upcoming
 
+    def queued_track_index(self, track):
+        """Return the index of an exact queued track object, if present."""
+        return next((index for index, item in enumerate(self.queue) if item is track), None)
+
+    def remove_queued_track(self, track):
+        """Remove a non-current track from the queue."""
+        track_index = self.queued_track_index(track)
+        if track_index is None or track is self.current_music:
+            return False
+
+        self.queue.pop(track_index)
+        return True
+
+    def move_queued_track(self, track, destination_index):
+        """Move a non-current track to a queue index after the current track."""
+        track_index = self.queued_track_index(track)
+        current_index = self.queued_track_index(self.current_music)
+        if (
+            track_index is None
+            or current_index is None
+            or track is self.current_music
+            or destination_index <= current_index
+            or destination_index >= len(self.queue)
+        ):
+            return False
+
+        self.queue.pop(track_index)
+        self.queue.insert(destination_index, track)
+        return True
+
+    def move_queued_track_after(self, track, anchor):
+        """Move a non-current track immediately after another queued track."""
+        track_index = self.queued_track_index(track)
+        anchor_index = self.queued_track_index(anchor)
+        current_index = self.queued_track_index(self.current_music)
+        if (
+            track_index is None
+            or anchor_index is None
+            or current_index is None
+            or track is self.current_music
+            or anchor is track
+            or anchor_index < current_index
+        ):
+            return False
+
+        self.queue.pop(track_index)
+        anchor_index = self.queued_track_index(anchor)
+        self.queue.insert(anchor_index + 1, track)
+        return True
+
     def is_empty(self):
         """
         Checks if the queue is empty.

@@ -319,7 +319,11 @@ class Music(commands.Cog):
                 )
                 embed.add_field(name="Duration", value=duration_str, inline=True)
                 embed.add_field(name="Added By", value=f"<@{ctx.author.id}>", inline=True)
-                await ctx.send(embed=embed)
+                queued_track = session.q.queue[-1]
+                await ctx.send(
+                    embed=embed,
+                    view=QueuedTrackControls(self, ctx.guild.id, queued_track),
+                )
                 await ctx.message.add_reaction("✅")
             else:
                 embed.description = (
@@ -770,6 +774,118 @@ class MusicControls(discord.ui.View):
         for child in self.children:
             child.disabled = True
         await interaction.response.edit_message(view=self)
+
+
+class QueuedTrackControls(discord.ui.View):
+    def __init__(self, music_cog, guild_id, track):
+        super().__init__(timeout=600)
+        self.music_cog = music_cog
+        self.guild_id = guild_id
+        self.track = track
+
+    def get_session(self):
+        return next((session for session in sessions if session.guild == self.guild_id), None)
+
+    async def interaction_check(self, interaction):
+        voice = interaction.guild.voice_client if interaction.guild else None
+        user_voice = getattr(interaction.user, "voice", None)
+        if not voice or not voice.is_connected() or not user_voice or user_voice.channel != voice.channel:
+            await interaction.response.send_message(
+                "Join my voice channel before using queue controls.", ephemeral=True
+            )
+            return False
+        return True
+
+    @discord.ui.button(emoji="🗑️", style=discord.ButtonStyle.danger)
+    async def remove(self, interaction, button):
+        session = self.get_session()
+        if not session or not session.q.remove_queued_track(self.track):
+            await interaction.response.send_message("That track is no longer in the queue.", ephemeral=True)
+            return
+
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(view=self)
+
+    @discord.ui.button(emoji="↕️", style=discord.ButtonStyle.secondary)
+    async def move(self, interaction, button):
+        session = self.get_session()
+        if not session:
+            await interaction.response.send_message("The music session has ended.", ephemeral=True)
+            return
+
+        current_index = session.q.queued_track_index(session.q.current_music)
+        track_index = session.q.queued_track_index(self.track)
+        if current_index is None or track_index is None or track_index <= current_index:
+            await interaction.response.send_message("That track is no longer available to move.", ephemeral=True)
+            return
+
+        anchors = [
+            item for item in session.q.queue[current_index:]
+            if item is not self.track
+        ][:25]
+        await interaction.response.send_message(
+            f"Choose the song after which to place **{truncate_text(self.track.title)}**.",
+            ephemeral=True,
+            view=QueuePositionSelector(
+                self,
+                interaction.user.id,
+                anchors,
+                session.q.current_music,
+                interaction.guild,
+            ),
+        )
+
+
+class QueuePositionSelector(discord.ui.View):
+    def __init__(self, track_controls, owner_id, anchors, current_track, guild):
+        super().__init__(timeout=120)
+        self.track_controls = track_controls
+        self.owner_id = owner_id
+        self.anchors = anchors
+        self.position_select = discord.ui.Select(
+            placeholder="Place after...",
+            options=[
+                discord.SelectOption(
+                    label=anchor.title[:100],
+                    description=self.anchor_description(anchor, current_track, guild),
+                    value=str(index),
+                )
+                for index, anchor in enumerate(anchors)
+            ],
+        )
+        self.position_select.callback = self.select_position
+        self.add_item(self.position_select)
+
+    @staticmethod
+    def anchor_description(anchor, current_track, guild):
+        member = guild.get_member(anchor.user) if guild else None
+        author = member.display_name if member else f"User {anchor.user}"
+        now_playing = "Now playing | " if anchor is current_track else ""
+        return f"{now_playing}Added by {author}"[:100]
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Only the user who opened this menu can use it.", ephemeral=True)
+            return False
+        return await self.track_controls.interaction_check(interaction)
+
+    async def select_position(self, interaction):
+        session = self.track_controls.get_session()
+        anchor = self.anchors[int(self.position_select.values[0])]
+        if not session or not session.q.move_queued_track_after(self.track_controls.track, anchor):
+            await interaction.response.edit_message(
+                content="That track is no longer available to move.", view=None
+            )
+            return
+
+        await interaction.response.edit_message(
+            content=(
+                f"Moved **{truncate_text(self.track_controls.track.title)}** "
+                f"to play after **{truncate_text(anchor.title)}**."
+            ),
+            view=None,
+        )
 
 
 class YouTubeSearchDropdown(discord.ui.View):
