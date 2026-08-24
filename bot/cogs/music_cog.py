@@ -48,21 +48,24 @@ class Music(commands.Cog):
         self.bot = bot
         self.spotify_import_locks = {}
         self.spotify_store = getattr(self.bot, "spotify_store", None)
+        self.song_stats_store = getattr(self.bot, "song_stats_store", None)
         if self.spotify_store is None:
             logger.warning("Spotify support is not configured for this bot.")
+        if self.song_stats_store is None:
+            logger.warning("Song statistics are not configured for this bot.")
 
 
     @property
     def spotify_max_tracks(self):
-        return int(os.getenv("SPOTIFY_PLAYLIST_MAX_TRACKS", "20"))
+        return int(os.getenv("PLAYLIST_MAX_TRACKS", "20"))
 
     @property
     def spotify_default_tracks(self):
-        return min(int(os.getenv("SPOTIFY_PLAYLIST_DEFAULT_TRACKS", "20")), self.spotify_max_tracks)
+        return min(int(os.getenv("PLAYLIST_DEFAULT_TRACKS", "20")), self.spotify_max_tracks)
 
     @property
     def spotify_default_shuffle(self):
-        return os.getenv("SPOTIFY_PLAYLIST_DEFAULT_SHUFFLE", "false").lower() == "true"
+        return os.getenv("PLAYLIST_DEFAULT_SHUFFLE", "false").lower() == "true"
 
     async def get_session(self, ctx):
         """
@@ -197,6 +200,17 @@ class Music(commands.Cog):
             source,
             after=lambda error: self.prepare_continue_queue(ctx, completed_track, error),
         )
+        if self.song_stats_store:
+            try:
+                await asyncio.to_thread(
+                    self.song_stats_store.record_play,
+                    ctx.guild.id,
+                    completed_track.ytube,
+                    completed_track.title,
+                    completed_track.thumb,
+                )
+            except Exception as error:
+                logger.warning("Guild %s: failed to record song play: %s", ctx.guild.id, error)
 
         # Convert duration to HH:MM:SS format
         duration = session.q.current_music.duration
@@ -219,7 +233,7 @@ class Music(commands.Cog):
         embed.add_field(name="Duration", value=duration_str, inline=True)
         embed.add_field(name="Added By", value=f"<@{ctx.author.id}>", inline=True)
 
-        await ctx.send(embed=embed, view=MusicControls(self, ctx.guild.id))
+        await ctx.send(embed=embed, view=MusicControls(self, ctx.guild.id, session.q.current_music.ytube))
 
     async def auto_disconnect(self, ctx, voice):
         """
@@ -581,6 +595,56 @@ class Music(commands.Cog):
         else:
             await ctx.send("Spotify is not configured for this server.")
 
+    async def send_song_ranking(self, ctx, title, rows, empty_message):
+        if not rows:
+            await ctx.send(empty_message)
+            return
+        lines = []
+        for index, (track_title, track_url, thumbnail_url, plays, likes, dislikes) in enumerate(rows, start=1):
+            lines.append(
+                f"**{index}.** [{escape_markdown(truncate_text(track_title))}]({track_url})\n"
+                f"Plays: {plays} | Likes: {likes} | Dislikes: {dislikes}"
+            )
+        embed = discord.Embed(title=title, description="\n\n".join(lines), color=discord.Color.blue())
+        if rows[0][2]:
+            embed.set_thumbnail(url=rows[0][2])
+        await ctx.send(embed=embed)
+
+    async def get_song_ranking(self, ctx, method_name, title, empty_message, *arguments):
+        if not self.song_stats_store:
+            await ctx.send("Song statistics are currently unavailable.")
+            return
+        rows = await asyncio.to_thread(
+            getattr(self.song_stats_store, method_name), ctx.guild.id, *arguments
+        )
+        await self.send_song_ranking(ctx, title, rows, empty_message)
+
+    @commands.command(name='mostplayed')
+    async def most_played(self, ctx):
+        """Show this server's 20 most played songs."""
+        await self.get_song_ranking(ctx, "top_played", "Most Played Songs", "No songs have been played in this server yet.")
+
+    @commands.command(name='mostliked')
+    async def most_liked(self, ctx):
+        """Show this server's 20 most liked songs."""
+        await self.get_song_ranking(ctx, "top_liked", "Most Liked Songs", "No songs have been liked in this server yet.")
+
+    @commands.command(name='mostdisliked')
+    async def most_disliked(self, ctx):
+        """Show this server's 20 most disliked songs."""
+        await self.get_song_ranking(ctx, "top_disliked", "Most Disliked Songs", "No songs have been disliked in this server yet.")
+
+    @commands.command(name='myliked')
+    async def my_liked(self, ctx):
+        """Show your 20 most recently liked songs in this server."""
+        await self.get_song_ranking(
+            ctx,
+            "liked_by_user",
+            "Your Liked Songs",
+            "You have not liked any songs in this server yet.",
+            ctx.author.id,
+        )
+
     @commands.command(name='play')
     async def play(self, ctx, *, query):
         """Play a search result, YouTube URL, or Spotify track, album, or playlist.
@@ -700,7 +764,7 @@ class Music(commands.Cog):
                 )
                 embed.add_field(name="Duration", value=duration_str, inline=True)
                 embed.add_field(name="Added By", value=f"<@{ctx.author.id}>", inline=True)
-                await ctx.send(embed=embed, view=MusicControls(self, ctx.guild.id))
+                await ctx.send(embed=embed, view=MusicControls(self, ctx.guild.id, session.q.current_music.ytube))
                 session.q.set_last_as_current()
                 source = await discord.FFmpegOpusAudio.from_probe(url, **FFMPEG_OPTIONS)
                 completed_track = session.q.current_music
@@ -708,6 +772,17 @@ class Music(commands.Cog):
                     source,
                     after=lambda error: self.prepare_continue_queue(ctx, completed_track, error),
                 )
+                if self.song_stats_store:
+                    try:
+                        await asyncio.to_thread(
+                            self.song_stats_store.record_play,
+                            ctx.guild.id,
+                            completed_track.ytube,
+                            completed_track.title,
+                            completed_track.thumb,
+                        )
+                    except Exception as error:
+                        logger.warning("Guild %s: failed to record song play: %s", ctx.guild.id, error)
                 await ctx.message.add_reaction("▶️")
     @commands.command(name='skip', aliases=['next'])
     async def skip(self, ctx):
@@ -1071,7 +1146,7 @@ class Music(commands.Cog):
         embed.add_field(name="Duration", value=duration_str, inline=True)
         embed.add_field(name="Added By", value=f"<@{ctx.author.id}>", inline=True)
 
-        await ctx.send(embed=embed, view=MusicControls(self, ctx.guild.id))
+        await ctx.send(embed=embed, view=MusicControls(self, ctx.guild.id, completed_track.ytube))
         await ctx.message.add_reaction("🎶")
 
     @commands.command(name="search")
@@ -1282,10 +1357,11 @@ class YouTubePlaylistModal(discord.ui.Modal, title="YouTube playlist import"):
 
 
 class MusicControls(discord.ui.View):
-    def __init__(self, music_cog, guild_id):
+    def __init__(self, music_cog, guild_id, track_url):
         super().__init__(timeout=600)
         self.music_cog = music_cog
         self.guild_id = guild_id
+        self.track_url = track_url
 
     def get_session(self):
         return next((session for session in sessions if session.guild == self.guild_id), None)
@@ -1299,6 +1375,37 @@ class MusicControls(discord.ui.View):
             )
             return False
         return True
+
+    async def rate_current_track(self, interaction, rating):
+        session = self.get_session()
+        store = self.music_cog.song_stats_store
+        if not store:
+            await interaction.response.send_message("Song ratings are currently unavailable.", ephemeral=True)
+            return
+        if not session or session.q.current_music.ytube != self.track_url:
+            await interaction.response.send_message("This now-playing control is no longer current.", ephemeral=True)
+            return
+        try:
+            resulting_rating = await asyncio.to_thread(
+                store.set_rating, self.guild_id, self.track_url, interaction.user.id, rating
+            )
+            likes, dislikes = await asyncio.to_thread(store.rating_summary, self.guild_id, self.track_url)
+        except Exception as error:
+            logger.warning("Guild %s: failed to save song rating: %s", self.guild_id, error)
+            await interaction.response.send_message("Song rating could not be saved.", ephemeral=True)
+            return
+        action = "removed your rating" if resulting_rating == 0 else ("liked" if resulting_rating == 1 else "disliked")
+        await interaction.response.send_message(
+            f"You {action} this song. Likes: {likes} | Dislikes: {dislikes}", ephemeral=True
+        )
+
+    @discord.ui.button(emoji="👍", style=discord.ButtonStyle.secondary, row=1)
+    async def like(self, interaction, button):
+        await self.rate_current_track(interaction, 1)
+
+    @discord.ui.button(emoji="👎", style=discord.ButtonStyle.secondary, row=1)
+    async def dislike(self, interaction, button):
+        await self.rate_current_track(interaction, -1)
 
     @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.secondary, row=0)
     async def skip(self, interaction, button):

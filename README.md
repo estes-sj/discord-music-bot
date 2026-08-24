@@ -16,6 +16,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 - Search and play YouTube music directly in voice channels
 - Resolve Spotify track, album, and playlist metadata to YouTube equivalents
 - Queue management with pagination
+- Like or dislike currently playing songs, with persistent guild statistics
 - Support for multiple guilds via Sessions
 - Select music using Discord interactions
 - Auto leaving when the channel is empty or no music is playing
@@ -159,6 +160,21 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
+  <summary>Song ratings and guild statistics</summary>
+
+  The now-playing message includes Like and Dislike buttons. Each member has one rating per song in each server: choosing the other action replaces the current rating, and choosing the same action again removes it. Ratings are only available while the button's song is still playing.
+
+  Song play counts are recorded when playback begins, including loop replays. All statistics are scoped to the current server and persist in `data/song_stats.db`.
+
+  ```text
+  .mostplayed       # Top 20 songs by playback starts
+  .mostliked        # Top 20 songs by likes
+  .mostdisliked     # Top 20 songs by dislikes
+  .myliked          # Your 20 most recently liked songs in this server
+  ```
+</details>
+
+<details>
   <summary><code>.queue</code> - Displays the current queue of songs</summary>
 
   - Alias: `.q`
@@ -274,10 +290,10 @@ Use one of the following options to run the bot with Docker Compose.
    # Optional: defaults to daily at 04:00 in the container's time zone.
    YTDLP_UPDATE_SCHEDULE="0 4 * * *"
 
-  # Required only for Spotify link support. This must be a Fernet key.
-  SPOTIFY_CREDENTIAL_ENCRYPTION_KEY=replace-with-a-fernet-key
-  SPOTIFY_MARKET=US
-  SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/spotify-callback
+   # Required only for Spotify link support. This must be a Fernet key.
+   SPOTIFY_CREDENTIAL_ENCRYPTION_KEY=replace-with-a-fernet-key
+   SPOTIFY_MARKET=US
+   SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/spotify-callback
    ```
 
 3. **Build and start the bot**:
@@ -297,11 +313,12 @@ Once the bot is running, it will appear online in your Discord server and be abl
 | `LOG_MAX_BYTES` | `8388608` | `LOG_MAX_BYTES=16777216` | Maximum size, in bytes, of each `logs/discord.log` file before rotation. |
 | `LOG_BACKUP_COUNT` | `5` | `LOG_BACKUP_COUNT=10` | Number of rotated `discord.log` files to retain. |
 | `YTDLP_UPDATE_SCHEDULE` | `0 4 * * *` | `YTDLP_UPDATE_SCHEDULE="0 8 * * *"` | Cron expression for yt-dlp updates. Output is written to `logs/yt-dlp-update.log`. |
+| `SONG_STATS_DATABASE_PATH` | `/app/data/song_stats.db` | `SONG_STATS_DATABASE_PATH=/app/data/song_stats.db` | SQLite database for persistent, guild-scoped song play counts and ratings. |
 | `SPOTIFY_CREDENTIAL_ENCRYPTION_KEY` | None | `SPOTIFY_CREDENTIAL_ENCRYPTION_KEY=...` | Fernet key used to encrypt per-guild Spotify Client IDs and Client Secrets at rest. Generate one with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Required for Spotify support. |
 | `SPOTIFY_DATABASE_PATH` | `/app/data/spotify.db` | `SPOTIFY_DATABASE_PATH=/app/data/spotify.db` | SQLite database containing encrypted guild credential records. Mount `/app/data` to retain it across container replacement. |
-| `SPOTIFY_PLAYLIST_MAX_TRACKS` | `20` | `SPOTIFY_PLAYLIST_MAX_TRACKS=50` | Maximum number of tracks accepted from a Spotify album or playlist import. |
-| `SPOTIFY_PLAYLIST_DEFAULT_TRACKS` | `20` | `SPOTIFY_PLAYLIST_DEFAULT_TRACKS=10` | Track count used by the playlist configuration modal and imports without an explicit count. |
-| `SPOTIFY_PLAYLIST_DEFAULT_SHUFFLE` | `false` | `SPOTIFY_PLAYLIST_DEFAULT_SHUFFLE=true` | Whether Spotify playlist imports shuffle eligible tracks by default. |
+| `PLAYLIST_MAX_TRACKS` | `20` | `PLAYLIST_MAX_TRACKS=50` | Maximum number of tracks accepted from an album or playlist import. |
+| `PLAYLIST_DEFAULT_TRACKS` | `20` | `PLAYLIST_DEFAULT_TRACKS=10` | Track count used by the playlist configuration modal and imports without an explicit count. |
+| `PLAYLIST_DEFAULT_SHUFFLE` | `false` | `PLAYLIST_DEFAULT_SHUFFLE=true` | Whether playlist imports shuffle eligible tracks by default. |
 | `SPOTIFY_MARKET` | `US` | `SPOTIFY_MARKET=CA` | Two-letter country code used to determine Spotify catalog availability for the Client Credentials flow. Set this to the bot's intended region. |
 | `SPOTIFY_REDIRECT_URI` | None | `SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/spotify-callback` | Exact callback URL registered in the Spotify Developer Dashboard for one-time playlist authorization. Spotify permits HTTP only for an explicit loopback IP, not `localhost` or a LAN/server IP. The authorizing user copies the redirected URL to the bot's DM. Required for playlists. |
 
@@ -325,16 +342,10 @@ docker compose exec -T discord-music-bot yt-dlp --version
 Feel free to suggest others.
 
 - Adding a database to allow features:
-  - "Liking" a song (requires storing user/guild data)
+  - "Liking" and "disliking" a song (requires storing user/guild data)
   - Most played/liked songs in the guild
   - Most played/liked songs for all bot users (across multiple guilds)
   - Playlists
-- Restarting a song
-- Removing an index from the queue
-- Skipping to a particular index in the queue
-- Shuffling a queue
-- Public Discord app/bot auto-running `master` (via pipelines)
-  - `ENV` variable that can be passed in for scheduled restarts/maintenance (seen in the footer of embeds)
 
 ### Bugs
 Will address bugs as I identify them through my own personal use of the bot. Feel free to open an issue, create a PR, or reach out to me for other issues found.

@@ -1,5 +1,6 @@
 import sys
 import os
+import sqlite3
 
 import logging
 import logging.handlers
@@ -12,6 +13,7 @@ from discord.ext import commands
 # Local imports
 from bot.cogs import Music, ServerAssistant
 from bot import __version__
+from bot.utils.song_stats_store import create_store_from_environment as create_song_stats_store
 from bot.utils.spotify_store import SpotifyStoreError, create_store_from_environment
 
 ######################### SETUP #########################
@@ -44,6 +46,11 @@ client = commands.Bot(
 
 # Load bot token from environment variables
 TOKEN = os.getenv("DISCORD_TOKEN")
+try:
+    client.song_stats_store = create_song_stats_store()
+except (OSError, sqlite3.Error) as error:
+    client.song_stats_store = None
+    logging.getLogger("discord").warning("Song statistics are unavailable: %s", error)
 try:
     client.spotify_store = create_store_from_environment()
 except SpotifyStoreError as error:
