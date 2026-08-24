@@ -4,10 +4,10 @@
     <img src="docs/queuemessageonly.png" alt="Music Bot Peek" width="50%"/>
 </p>
 
-A Discord bot that allows users to play music from YouTube in a voice channel with custom commands for search, play, pause, and more. Spotify track, album, and playlist links are resolved to matching YouTube audio.
+A Discord bot that allows users to play music and playlists from YouTube in a voice channel with custom commands for search, play, pause, and more. Spotify track, album, and playlist links are resolved to matching YouTube audio.
 Supports multiple tracks, queue management, and interactive selection.
 
-The main tools used are `youtube-dl` for pulling YouTube data and [FFmpeg](https://www.ffmpeg.org/) for audio streaming.
+The main tools used are `yt-dlp` for pulling YouTube data and [FFmpeg](https://www.ffmpeg.org/) for audio streaming.
 
 I used cogs since I adapt this code onto other bots that I have. It makes it a bit more modular since I can simply add the `Music` cog to a pre-existing bot.
 
@@ -24,7 +24,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 ## Usage
 
 <details>
-  <summary><code>.search &lt;song name&gt;</code> - Searches Youtube results</summary>
+  <summary><code>.search &lt;song name&gt;</code> - Searches YouTube results</summary>
 
   Searches YouTube for the top 20 results and allows the user to select which one to add to the queue.
   
@@ -34,24 +34,41 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>.play &lt;song name, YouTube URL, or Spotify URL&gt;</code> - Plays a song or adds it to queue</summary>
-
-  Searches for a song and plays the first result in the voice channel. YouTube playlist URLs open the same import configuration used for Spotify playlists; use `--count`, `--range START-END`, `--ordered`, or `--shuffle` to skip the prompt.
+  <summary><code>.play &lt;song name, YouTube URL, or YouTube playlist URL&gt;</code> - Plays a song or adds it to queue</summary>
 
   ```text
-  .play https://www.youtube.com/playlist?list=PLAYLIST_ID
-  .play https://www.youtube.com/playlist?list=PLAYLIST_ID --count 20 --ordered
-  .play https://www.youtube.com/playlist?list=PLAYLIST_ID --range 20-40 --count 10 --shuffle
+  .play Neverender by Tame Impala
+  .play https://www.youtube.com/watch?v=E7FU_mqhFGk
   ```
+
+  Searches for a song and plays the first result in the voice channel. 
 
   <div class="image-container" align="center">
       <img src="docs/play_now.png" alt="Play Now Example" width="40%"/>
       <img src="docs/play_queue.png" alt="Add to Queue Example" width="40%"/>
   </div>
+
+  For playlists, you'll receive a prompt to select the number of tracks to queue and whether to shuffle them. The bot queues matches it finds and reports how many selected tracks could not be resolved. Some of the default options can be configured in the `.env` file, including the maximum number of tracks accepted from a playlist or album import, the default number of tracks to queue, and whether to shuffle them by default.
+
+  ```text
+  .play https://www.youtube.com/playlist?list=PLAYLIST_ID
+  ```
+
+  <div class="image-container" align="center">
+      <img src="docs/playlist_import_form.png" alt="Playlist Import Example" width="40%"/>
+  </div>
+
+  Alternatively, arguments can be used in the command. Use `--count`, `--range START-END`, `--ordered`, or `--shuffle` to skip the prompt.
+
+  ```text
+  .play https://www.youtube.com/playlist?list=PLAYLIST_ID --count 20 --ordered
+  .play https://www.youtube.com/playlist?list=PLAYLIST_ID --range 20-40 --count 10 --shuffle
+  ```
+
 </details>
 
 <details>
-  <summary><code>.play &lt;Spotify URL&gt;</code> - Imports Spotify metadata as YouTube matches</summary>
+  <summary><code>.play &lt;Spotify song URL or playlist URL&gt;</code> - Imports Spotify metadata as YouTube matches</summary>
 
   Spotify links do not stream Spotify audio directly. The bot reads Spotify metadata using credentials configured for this server, finds equivalent YouTube audio, and queues the successful matches.
 
@@ -59,7 +76,18 @@ See [Usage](#usage) for more information and examples on specific commands and f
 
   Track and album links use the server's Spotify application credentials. Spotify requires user authorization to enumerate playlist items. On the first playlist request, the bot DMs the requester an authorization link; after accepting it, copy the complete redirected URL from the browser address bar into the DM. The encrypted refresh token is then stored per guild and renewed automatically. Register `SPOTIFY_REDIRECT_URI` exactly in the Spotify Developer Dashboard before using playlists. Spotify forbids `localhost`; for the manual callback flow, register and configure `http://127.0.0.1:8888/spotify-callback` instead. The browser may show a connection error after redirecting, which is expected: copy that page's complete address into the DM.
 
+  <div class="image-container" align="center">
+      <img src="docs/spotify_developer_portal.png" alt="Spotify Developer Portal Example" width="70%"/>
+  </div>
+
   If the browser never displays the `http://127.0.0.1:8888/spotify-callback?...` URL, open its Developer Tools, select the **Network** tab, refresh the Spotify authorization page, click **Agree**, then copy the request URL whose path is `spotify-callback` into the bot DM. Do not post that URL in a server channel because it includes a short-lived authorization code.
+
+  <div class="image-container" align="center">
+      <img src="docs/spotify_setup.png" alt="Spotify Setup Example" width="70%"/>
+  </div>
+  <div class="image-container" align="center">
+      <img src="docs/spotify_callback_url.png" alt="Spotify Callback URL Example" width="70%"/>
+  </div>
 
   Spotify currently returns playlist items only for playlists owned by the authorizing account or where that account is a collaborator. For a public playlist owned by someone else, save or copy it into the authorizing Spotify account first. Playlists with no options open a requester-only configuration modal. Position ranges are 1-based and inclusive.
 
@@ -191,7 +219,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 
   - Prefix command aliases: `.remove`, `.rm`
 
-  `.remove` immediately opens an ephemeral dropdown of upcoming songs. The prefix commands open a small in-channel button first, because Discord only supports ephemeral messages as interaction responses. After a selection, the bot posts the removed song in the server channel.
+  `.remove` opens an ephemeral dropdown of upcoming songs. The prefix commands open a small in-channel button first, because Discord only supports ephemeral messages as interaction responses. After a selection, the bot posts the removed song in the server channel.
 </details>
 
 <details>
@@ -210,6 +238,17 @@ See [Usage](#usage) for more information and examples on specific commands and f
 | `.time`                             | Displays the current time.                                                                    |
 | `.up`                               | Reports container ID and uptime.                                                              |
 
+### Interactions
+This bot also includes Discord interactions for quick pause/play, skip, queue management, and like/dislike actions. The below image shows the interaction buttons that appear in the now-playing message. From left-to-right, the buttons are: ⏭️ Skip, ▶️ Play / ⏸️ Pause, 🔁 Loop, 🔀 Shuffle, ⏹️ Stop, 👍 Like, 👎 Dislike. The Like and Dislike buttons are only available while the song is actively playing.
+  <div class="image-container" align="center">
+      <img src="docs/interaction_buttons_currently_playing.png" alt="Currently Playing Interactions" width="50%"/>
+  </div>
+
+Then for a queued song, the interaction buttons are 🗑️ Remove and ↕️ Move.
+  <div class="image-container" align="center">
+      <img src="docs/interaction_buttons_queued_song.png" alt="Queued Song Interactions" width="50%"/>
+  </div>
+
 ## Installation Steps
 
 ### Creating a bot
@@ -217,24 +256,36 @@ See [Usage](#usage) for more information and examples on specific commands and f
 1. **Create a Discord bot**:
    - Go to the [Discord Developer Portal](https://discord.com/developers/applications).
    - Click "New Application" and give your bot a name.
-   - Under the "Bot" tab, click "Add Bot" and confirm.
+   - Under the "Bot" tab, click "Add Bot" (if needed) and confirm.
    - In the "TOKEN" section, click "Copy" to save your bot token, which will be used in your `.env` file.
 
-2. **Set up permissions**:
-   - In the "OAuth2" tab, select "bot" under "scopes."
+2. **Installation Context**:
+   - Under the installation tab, switch to "Guild Install" and change the "Install Link" to "None".
+    <div class="image-container" align="center">
+      <img src="docs/discord_installation_tab.png" alt="Discord Installation Tab" width="50%"/>
+    </div>
+
+3. **Set up permissions**:
+   - In the "OAuth2" tab, select "bot" and "applications.commands" under "scopes."
    - Under "Bot Permissions," select the necessary permissions (such as "Send Messages," "Manage Messages," "Connect," "Speak," etc.). See the example below for recommended permissions.
     <div class="image-container" align="center">
       <img src="docs/bot_permissions_example.png" alt="Bot Permissions Example" width="50%"/>
     </div>
 
-3. **Invite your bot to a server**:
+4. **Intents**:
+   - In the "Bot" tab, enable the necessary intents (such as "Presence Intent", "Server Members Intent," "Message Content Intent," etc.) to allow the bot to function properly.
+    <div class="image-container" align="center">
+      <img src="docs/additional_discord_bot_intents_settings.png" alt="Bot Intents Example" width="50%"/>
+    </div>
+
+5. **Invite your bot to a server**:
    - In the "OAuth2" tab, use the generated URL to invite the bot to your Discord server.
 
 ### Running through Docker
 
 Use one of the following options to run the bot with Docker Compose.
 
-#### Pull the published image
+#### **Option 1: Pull the published image**
 
 1. **Create a directory for the deployment**:
   ```bash
@@ -275,7 +326,7 @@ Use one of the following options to run the bot with Docker Compose.
   docker compose up -d
   ```
 
-#### Build from source
+#### **Option 2: Build from source**
 
 1. **Clone the repository**:
    ```bash
@@ -336,19 +387,8 @@ docker compose exec -T discord-music-bot python3 -m pip install --no-cache-dir -
 docker compose exec -T discord-music-bot yt-dlp --version
 ```
 
-## Future Work
-
-### New Features
-Feel free to suggest others.
-
-- Adding a database to allow features:
-  - "Liking" and "disliking" a song (requires storing user/guild data)
-  - Most played/liked songs in the guild
-  - Most played/liked songs for all bot users (across multiple guilds)
-  - Playlists
-
-### Bugs
-Will address bugs as I identify them through my own personal use of the bot. Feel free to open an issue, create a PR, or reach out to me for other issues found.
+## Bugs
+Will address bugs as I identify them through my own personal use of the bot. Feel free to open an issue, create a PR, or reach out to me for suggestions.
 
 ## License
 
