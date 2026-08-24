@@ -165,6 +165,7 @@ class Queue:
         """
         self.queue.clear()
         self.current_music = self.music('', '', '', '', '', '')
+        self.loop_current = False
 
     def clear_queue_except_current(self):
         """
@@ -300,3 +301,6 @@ class Session:
         self.guild: int = guild
         self.channel: int = channel
         self.q: Queue = Queue()
+        self.now_playing_message = None
+        self.now_playing_track_url = None
+        self.queued_track_messages = {}

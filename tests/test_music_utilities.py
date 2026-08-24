@@ -40,6 +40,15 @@ class QueueTests(unittest.TestCase):
         self.assertIs(queue.queue[0], current_track)
         self.assertEqual({track.title for track in queue.queue}, {"Current", "First", "Second", "Third"})
 
+    def test_clearing_queue_disables_looping(self):
+        queue = MUSIC_UTILITIES.Queue()
+        queue.enqueue("Current", "url", "thumb", "youtube", 60, 1)
+        queue.loop_current = True
+
+        queue.clear_queue()
+
+        self.assertFalse(queue.loop_current)
+
 
 if __name__ == "__main__":
     unittest.main()

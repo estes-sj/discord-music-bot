@@ -144,6 +144,43 @@ class Music(commands.Cog):
         except Exception as e:
             logger.error("Guild %s: failed to continue the music queue: %s", ctx.guild.id, e)
 
+    async def retire_now_playing_controls(self, session):
+        """Disable the active now-playing controls and clear their session reference."""
+        message = session.now_playing_message
+        track_url = session.now_playing_track_url
+        session.now_playing_message = None
+        session.now_playing_track_url = None
+        if not message or not track_url:
+            return
+        controls = MusicControls(self, session.guild, track_url)
+        for child in controls.children:
+            child.disabled = True
+        try:
+            await message.edit(view=controls)
+        except (discord.Forbidden, discord.NotFound):
+            pass
+
+    def forget_queued_track_controls(self, session, track):
+        session.queued_track_messages.pop(id(track), None)
+
+    async def retire_queued_track_controls(self, session, track):
+        entry = session.queued_track_messages.pop(id(track), None)
+        if not entry:
+            return
+        _, message = entry
+        controls = QueuedTrackControls(self, session.guild, track)
+        for child in controls.children:
+            child.disabled = True
+        try:
+            await message.edit(view=controls)
+        except (discord.Forbidden, discord.NotFound):
+            pass
+
+    async def retire_queued_track_controls_except(self, session, kept_track=None):
+        for track, _ in list(session.queued_track_messages.values()):
+            if track is not kept_track:
+                await self.retire_queued_track_controls(session, track)
+
     async def continue_queue(self, ctx, completed_track, error):
         """
         Plays the next song in the queue if available.
@@ -165,6 +202,7 @@ class Music(commands.Cog):
         ):
             if error:
                 logger.warning("Guild %s: audio playback ended with error: %s", ctx.guild.id, error)
+                await self.retire_now_playing_controls(session)
             return
 
         session.q.continuation_pending = True
@@ -173,6 +211,7 @@ class Music(commands.Cog):
                 if session.q.loop_current and not session.q.skip_requested:
                     await self.play_current_track(ctx, session)
                     return
+                await self.retire_now_playing_controls(session)
                 await ctx.send("*Queue has ended* ✅")
                 await asyncio.sleep(0)
                 if session in sessions:
@@ -183,7 +222,9 @@ class Music(commands.Cog):
                 await self.play_current_track(ctx, session)
                 return
 
+            await self.retire_now_playing_controls(session)
             session.q.next()
+            await self.retire_queued_track_controls(session, session.q.current_music)
             logger.info("Guild %s: continuing with %s", ctx.guild.id, session.q.current_music.title)
             await self.play_current_track(ctx, session)
         finally:
@@ -233,7 +274,20 @@ class Music(commands.Cog):
         embed.add_field(name="Duration", value=duration_str, inline=True)
         embed.add_field(name="Added By", value=f"<@{ctx.author.id}>", inline=True)
 
-        await ctx.send(embed=embed, view=MusicControls(self, ctx.guild.id, session.q.current_music.ytube))
+        controls = MusicControls(self, ctx.guild.id, completed_track.ytube)
+        if (
+            session.now_playing_message
+            and session.now_playing_track_url == completed_track.ytube
+        ):
+            try:
+                await session.now_playing_message.edit(embed=embed, view=controls)
+                return
+            except (discord.Forbidden, discord.NotFound):
+                session.now_playing_message = None
+                session.now_playing_track_url = None
+
+        session.now_playing_message = await ctx.send(embed=embed, view=controls)
+        session.now_playing_track_url = completed_track.ytube
 
     async def auto_disconnect(self, ctx, voice):
         """
@@ -260,6 +314,8 @@ class Music(commands.Cog):
                 session = await self.get_session_in_guild(ctx)
                 if session is None:
                     return
+                await self.retire_now_playing_controls(session)
+                await self.retire_queued_track_controls_except(session)
                 await asyncio.sleep(0)
                 if session in sessions:
                     sessions.remove(session)
@@ -274,6 +330,8 @@ class Music(commands.Cog):
                     session = await self.get_session_in_guild(ctx)
                     if session is None:
                         return
+                    await self.retire_now_playing_controls(session)
+                    await self.retire_queued_track_controls_except(session)
                     await asyncio.sleep(0)
                     if session in sessions:
                         sessions.remove(session)
@@ -746,17 +804,24 @@ class Music(commands.Cog):
             embed.set_thumbnail(url=thumb)
             embed.set_author(name="Music Stream Link", url=url)
 
-            if voice.is_playing():
+            playback_active = (
+                voice.is_playing()
+                or voice.is_paused()
+                or session.q.continuation_pending
+                or (session.q.loop_current and not session.q.is_empty())
+            )
+            if playback_active:
                 embed.description = (
                     f"*🎵 Added to queue in <#{session.channel}>*"
                 )
                 embed.add_field(name="Duration", value=duration_str, inline=True)
                 embed.add_field(name="Added By", value=f"<@{ctx.author.id}>", inline=True)
                 queued_track = session.q.queue[-1]
-                await ctx.send(
+                queued_message = await ctx.send(
                     embed=embed,
                     view=QueuedTrackControls(self, ctx.guild.id, queued_track),
                 )
+                session.queued_track_messages[id(queued_track)] = (queued_track, queued_message)
                 await ctx.message.add_reaction("✅")
             else:
                 embed.description = (
@@ -764,7 +829,11 @@ class Music(commands.Cog):
                 )
                 embed.add_field(name="Duration", value=duration_str, inline=True)
                 embed.add_field(name="Added By", value=f"<@{ctx.author.id}>", inline=True)
-                await ctx.send(embed=embed, view=MusicControls(self, ctx.guild.id, session.q.current_music.ytube))
+                session.now_playing_message = await ctx.send(
+                    embed=embed,
+                    view=MusicControls(self, ctx.guild.id, session.q.current_music.ytube),
+                )
+                session.now_playing_track_url = session.q.current_music.ytube
                 session.q.set_last_as_current()
                 source = await discord.FFmpegOpusAudio.from_probe(url, **FFMPEG_OPTIONS)
                 completed_track = session.q.current_music
@@ -840,6 +909,8 @@ class Music(commands.Cog):
                 return
             
             session.q.clear_queue()
+            await self.retire_now_playing_controls(session)
+            await self.retire_queued_track_controls_except(session)
             await voice.disconnect()
 
             await asyncio.sleep(0)
@@ -911,6 +982,8 @@ class Music(commands.Cog):
 
         voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
         if voice.is_playing():
+            await self.retire_now_playing_controls(session)
+            await self.retire_queued_track_controls_except(session)
             voice.stop()
             session.q.clear_queue()
             await ctx.message.add_reaction("⏹️")
@@ -1062,6 +1135,7 @@ class Music(commands.Cog):
             await ctx.message.add_reaction("✅")
             return
 
+        await self.retire_queued_track_controls_except(session, session.q.current_music)
         session.q.clear_queue_except_current()
         await ctx.send("*The queue has been cleared.*")
         await ctx.message.add_reaction("🧹")
@@ -1146,7 +1220,7 @@ class Music(commands.Cog):
         embed.add_field(name="Duration", value=duration_str, inline=True)
         embed.add_field(name="Added By", value=f"<@{ctx.author.id}>", inline=True)
 
-        await ctx.send(embed=embed, view=MusicControls(self, ctx.guild.id, completed_track.ytube))
+        await ctx.send(embed=embed, view=MusicControls(self, ctx.guild.id, current_music.ytube))
         await ctx.message.add_reaction("🎶")
 
     @commands.command(name="search")
@@ -1362,6 +1436,9 @@ class MusicControls(discord.ui.View):
         self.music_cog = music_cog
         self.guild_id = guild_id
         self.track_url = track_url
+        session = self.get_session()
+        if session and session.q.current_music.ytube == track_url and session.q.loop_current:
+            self.loop.style = discord.ButtonStyle.success
 
     def get_session(self):
         return next((session for session in sessions if session.guild == self.guild_id), None)
@@ -1458,6 +1535,9 @@ class MusicControls(discord.ui.View):
         voice = interaction.guild.voice_client
         if session:
             session.q.clear_queue()
+            session.now_playing_message = None
+            session.now_playing_track_url = None
+            await self.music_cog.retire_queued_track_controls_except(session)
         voice.stop()
         for child in self.children:
             child.disabled = True
@@ -1491,6 +1571,7 @@ class QueuedTrackControls(discord.ui.View):
             await interaction.response.send_message("That track is no longer in the queue.", ephemeral=True)
             return
 
+        self.music_cog.forget_queued_track_controls(session, self.track)
         for child in self.children:
             child.disabled = True
         await interaction.response.edit_message(view=self)
@@ -1661,6 +1742,7 @@ class QueueRemoveSelector(discord.ui.View):
             await interaction.response.edit_message(content="That track is no longer in the queue.", view=None)
             return
 
+        await self.music_cog.retire_queued_track_controls(session, track)
         await self.response_channel.send(f"*Removed from queue:* **{truncate_text(track.title)}**")
         await interaction.response.edit_message(content="Track removed from the queue.", view=None)
 
