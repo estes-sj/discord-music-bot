@@ -103,6 +103,12 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
+  <summary><code>.shuffle</code> - Shuffles upcoming songs</summary>
+
+  Keeps the current song in place and randomizes the remaining queued songs.
+</details>
+
+<details>
   <summary><code>.stop</code> - Stops playing audio and clears the queue</summary>
 
   - Alias: `.reset`
@@ -165,19 +171,19 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>/remove</code> - Removes a selected upcoming song from the queue</summary>
+  <summary><code>.remove</code> - Removes a selected upcoming song from the queue</summary>
 
   - Prefix command aliases: `.remove`, `.rm`
 
-  `/remove` immediately opens an ephemeral dropdown of upcoming songs. The prefix commands open a small in-channel button first, because Discord only supports ephemeral messages as interaction responses. After a selection, the bot posts the removed song in the server channel.
+  `.remove` immediately opens an ephemeral dropdown of upcoming songs. The prefix commands open a small in-channel button first, because Discord only supports ephemeral messages as interaction responses. After a selection, the bot posts the removed song in the server channel.
 </details>
 
 <details>
-  <summary><code>/move</code> - Moves a selected upcoming song in the queue</summary>
+  <summary><code>.move</code> - Moves a selected upcoming song in the queue</summary>
 
   - Prefix command: `.move`
 
-  Select an upcoming song, then select the song after which it should play. `/move` opens the private selector immediately; `.move` first posts a requester-only launcher button.
+  Select an upcoming song, then select the song after which it should play. `.move` opens the private selector immediately; `.move` first posts a requester-only launcher button.
 </details>
 
 **Other Utility Commands**

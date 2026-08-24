@@ -29,6 +29,17 @@ class QueueTests(unittest.TestCase):
         self.assertTrue(queue.move_queued_track_after(queue.queue[2], queue.current_music))
         self.assertEqual([track.title for track in queue.queue], ["Current", "Second", "First"])
 
+    def test_shuffle_keeps_current_track_in_place(self):
+        queue = MUSIC_UTILITIES.Queue()
+        for title in ("Current", "First", "Second", "Third"):
+            queue.enqueue(title, f"url-{title}", "thumb", "youtube", 60, 1)
+
+        current_track = queue.current_music
+        queue.shuffle_upcoming()
+
+        self.assertIs(queue.queue[0], current_track)
+        self.assertEqual({track.title for track in queue.queue}, {"Current", "First", "Second", "Third"})
+
 
 if __name__ == "__main__":
     unittest.main()

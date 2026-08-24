@@ -734,6 +734,25 @@ class Music(commands.Cog):
             voice.stop()
             await ctx.message.add_reaction("⏭️")
 
+    @commands.command(name='shuffle')
+    async def shuffle_queue(self, ctx):
+        """Shuffle upcoming tracks while keeping the current track in place."""
+        if not await self.ensure_user_in_voice(ctx):
+            return
+        if not await self.ensure_bot_in_voice(ctx):
+            return
+
+        session = await self.get_session(ctx)
+        if session is None:
+            return
+        if not session.q.theres_next():
+            await ctx.send("*There are no upcoming songs to shuffle.*")
+            await ctx.message.add_reaction("🤷‍♂️")
+            return
+
+        session.q.shuffle_upcoming()
+        await ctx.send("Upcoming songs shuffled.")
+
     @commands.command(name='leave')
     async def leave(self, ctx):
         """
@@ -915,7 +934,7 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name='move')
     async def move(self, ctx):
-        """Open a private selector to move an upcoming queued track."""
+        """Open a menu to move an upcoming queued track."""
         if not await self.ensure_user_in_voice(ctx):
             return
         if not await self.ensure_bot_in_voice(ctx):
