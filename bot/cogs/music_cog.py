@@ -145,20 +145,19 @@ class Music(commands.Cog):
             logger.error("Guild %s: failed to continue the music queue: %s", ctx.guild.id, e)
 
     async def retire_now_playing_controls(self, session):
-        """Disable the active now-playing controls and clear their session reference."""
-        message = session.now_playing_message
-        track_url = session.now_playing_track_url
+        """Disable all now-playing controls and clear their session references."""
+        messages = list(session.now_playing_messages.values())
         session.now_playing_message = None
         session.now_playing_track_url = None
-        if not message or not track_url:
-            return
-        controls = MusicControls(self, session.guild, track_url)
-        for child in controls.children:
-            child.disabled = True
-        try:
-            await message.edit(view=controls)
-        except (discord.Forbidden, discord.NotFound):
-            pass
+        session.now_playing_messages.clear()
+        for message, track_url in messages:
+            controls = MusicControls(self, session.guild, track_url)
+            for child in controls.children:
+                child.disabled = True
+            try:
+                await message.edit(view=controls)
+            except (discord.Forbidden, discord.NotFound):
+                pass
 
     def forget_queued_track_controls(self, session, track):
         session.queued_track_messages.pop(id(track), None)
@@ -288,6 +287,10 @@ class Music(commands.Cog):
 
         session.now_playing_message = await ctx.send(embed=embed, view=controls)
         session.now_playing_track_url = completed_track.ytube
+        session.now_playing_messages[id(session.now_playing_message)] = (
+            session.now_playing_message,
+            completed_track.ytube,
+        )
 
     async def auto_disconnect(self, ctx, voice):
         """
@@ -834,6 +837,10 @@ class Music(commands.Cog):
                     view=MusicControls(self, ctx.guild.id, session.q.current_music.ytube),
                 )
                 session.now_playing_track_url = session.q.current_music.ytube
+                session.now_playing_messages[id(session.now_playing_message)] = (
+                    session.now_playing_message,
+                    session.q.current_music.ytube,
+                )
                 session.q.set_last_as_current()
                 source = await discord.FFmpegOpusAudio.from_probe(url, **FFMPEG_OPTIONS)
                 completed_track = session.q.current_music
@@ -1220,7 +1227,14 @@ class Music(commands.Cog):
         embed.add_field(name="Duration", value=duration_str, inline=True)
         embed.add_field(name="Added By", value=f"<@{ctx.author.id}>", inline=True)
 
-        await ctx.send(embed=embed, view=MusicControls(self, ctx.guild.id, current_music.ytube))
+        now_playing_message = await ctx.send(
+            embed=embed,
+            view=MusicControls(self, ctx.guild.id, current_music.ytube),
+        )
+        session.now_playing_messages[id(now_playing_message)] = (
+            now_playing_message,
+            current_music.ytube,
+        )
         await ctx.message.add_reaction("🎶")
 
     @commands.command(name="search")
@@ -1535,8 +1549,7 @@ class MusicControls(discord.ui.View):
         voice = interaction.guild.voice_client
         if session:
             session.q.clear_queue()
-            session.now_playing_message = None
-            session.now_playing_track_url = None
+            await self.music_cog.retire_now_playing_controls(session)
             await self.music_cog.retire_queued_track_controls_except(session)
         voice.stop()
         for child in self.children:

@@ -303,4 +303,5 @@ class Session:
         self.q: Queue = Queue()
         self.now_playing_message = None
         self.now_playing_track_url = None
+        self.now_playing_messages = {}
         self.queued_track_messages = {}
