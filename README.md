@@ -407,6 +407,14 @@ docker compose exec -T discord-music-bot python3 -m pip install --no-cache-dir -
 docker compose exec -T discord-music-bot yt-dlp --version
 ```
 
+## Audio Quality Limitations
+
+The bot streams the best audio format that `yt-dlp` can obtain from the selected YouTube result, but it cannot improve the quality of that source. YouTube uploads may already be low bitrate, dynamically compressed, clipped, or distorted. This is most noticeable in music with sharp, loud transients or a wide dynamic range, such as orchestral cannon shots, percussion-heavy tracks, and bass-heavy music.
+
+Discord voice channels also impose a bitrate limit and transmit audio with Opus. The available channel bitrate depends on the server's boost level, so listeners may hear additional compression artifacts or reduced detail compared with the original upload. Use the highest voice-channel bitrate your server allows and try a different YouTube recording or remaster when a specific track sounds distorted.
+
+Seeking restarts the stream at the selected position; it may briefly buffer, but it does not increase or intentionally reduce the selected source quality.
+
 ## Bugs
 Will address bugs as I identify them through my own personal use of the bot. Feel free to open an issue, create a PR, or reach out to me for suggestions.
 
