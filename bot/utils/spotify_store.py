@@ -106,6 +106,14 @@ class SpotifyStore:
             raise SpotifyStoreError("Stored Spotify playlist authorization cannot be decrypted") from error
         return access_token, refresh_token, row[2]
 
+    def get_playlist_authorizer(self, guild_id):
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT authorized_by FROM spotify_playlist_tokens WHERE guild_id = ?",
+                (guild_id,),
+            ).fetchone()
+        return row[0] if row else None
+
     def save_playlist_token(self, guild_id, access_token, refresh_token, expires_at, authorized_by):
         encrypted_access = self.fernet.encrypt(access_token.encode())
         encrypted_refresh = self.fernet.encrypt(refresh_token.encode())

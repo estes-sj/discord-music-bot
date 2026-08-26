@@ -584,7 +584,14 @@ class Music(commands.Cog):
                         return
                 tracks = await asyncio.to_thread(client.get_tracks, resource, playlist_token)
             except (SpotifyError, requests.RequestException) as error:
-                await ctx.send(f"Spotify could not load that link: {error}")
+                message = f"Spotify could not load that link: {error}"
+                if resource.resource_type == "playlist" and isinstance(error, SpotifyPlaylistAuthorizationError):
+                    authorizer_id = await asyncio.to_thread(
+                        self.spotify_store.get_playlist_authorizer, ctx.guild.id
+                    )
+                    if authorizer_id:
+                        message += f" Playlist access was configured by <@{authorizer_id}>."
+                await ctx.send(message)
                 return
             selected_tracks = select_tracks(tracks, options)
             if not selected_tracks:

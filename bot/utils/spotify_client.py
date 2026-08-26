@@ -192,10 +192,10 @@ class SpotifyClient:
             )
             if response.status_code == 401:
                 raise SpotifyPlaylistAuthorizationError("Spotify playlist authorization has expired")
-            if response.status_code == 403:
+            if response.status_code in {403, 404}:
                 raise SpotifyPlaylistAuthorizationError(
-                    "Spotify only permits playlist items when the authorizing user owns the playlist "
-                    "or is a collaborator. Copy the playlist to your account or ask its owner to add you as a collaborator"
+                    "Spotify could not access that playlist. The authorizing user must own the playlist "
+                    "or be a collaborator. Copy the playlist to that Spotify account or ask its owner to add them as a collaborator"
                 )
             if response.status_code == 429:
                 raise SpotifyError("Spotify is rate limiting requests; try again shortly")

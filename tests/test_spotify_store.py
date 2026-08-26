@@ -35,9 +35,11 @@ class SpotifyStoreTests(unittest.TestCase):
             store.save_playlist_token(42, "access-token", "refresh-token", 123456, 100)
 
             self.assertEqual(store.get_playlist_token(42), ("access-token", "refresh-token", 123456))
+            self.assertEqual(store.get_playlist_authorizer(42), 100)
             self.assertNotIn(b"refresh-token", database_path.read_bytes())
             store.clear_credentials(42)
             self.assertIsNone(store.get_playlist_token(42))
+            self.assertIsNone(store.get_playlist_authorizer(42))
 
 
 if __name__ == "__main__":

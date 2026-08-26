@@ -120,7 +120,21 @@ class SpotifyClientTests(unittest.TestCase):
         original_get = SPOTIFY_CLIENT.requests.get
         try:
             SPOTIFY_CLIENT.requests.get = lambda *args, **kwargs: Response()
-            with self.assertRaisesRegex(SPOTIFY_CLIENT.SpotifyPlaylistAuthorizationError, "owns the playlist"):
+            with self.assertRaisesRegex(SPOTIFY_CLIENT.SpotifyPlaylistAuthorizationError, "must own"):
+                client.get_tracks(SPOTIFY_CLIENT.SpotifyResource("playlist", "abc123"), "user-token")
+        finally:
+            SPOTIFY_CLIENT.requests.get = original_get
+
+    def test_playlist_not_found_response_explains_ownership_requirement(self):
+        client = SPOTIFY_CLIENT.SpotifyClient("client", "secret")
+
+        class Response:
+            status_code = 404
+
+        original_get = SPOTIFY_CLIENT.requests.get
+        try:
+            SPOTIFY_CLIENT.requests.get = lambda *args, **kwargs: Response()
+            with self.assertRaisesRegex(SPOTIFY_CLIENT.SpotifyPlaylistAuthorizationError, "must own"):
                 client.get_tracks(SPOTIFY_CLIENT.SpotifyResource("playlist", "abc123"), "user-token")
         finally:
             SPOTIFY_CLIENT.requests.get = original_get
