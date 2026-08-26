@@ -1,5 +1,6 @@
 from collections import namedtuple
 import random
+import time
 
 class Queue:
     """
@@ -71,6 +72,26 @@ class Queue:
         self.loop_current = False
         self.continuation_pending = False
         self.skip_requested = False
+        self.restart_requested = False
+        self.restart_position = 0
+        self.playback_offset = 0
+        self.playback_started_at = None
+
+    def start_playback(self, offset=0):
+        self.playback_offset = max(0, offset)
+        self.playback_started_at = time.monotonic()
+
+    def pause_playback(self):
+        self.playback_offset = self.current_position()
+        self.playback_started_at = None
+
+    def resume_playback(self):
+        self.playback_started_at = time.monotonic()
+
+    def current_position(self):
+        if self.playback_started_at is None:
+            return self.playback_offset
+        return self.playback_offset + time.monotonic() - self.playback_started_at
 
     def set_last_as_current(self):
         """
@@ -166,6 +187,10 @@ class Queue:
         self.queue.clear()
         self.current_music = self.music('', '', '', '', '', '')
         self.loop_current = False
+        self.restart_requested = False
+        self.restart_position = 0
+        self.playback_offset = 0
+        self.playback_started_at = None
 
     def clear_queue_except_current(self):
         """

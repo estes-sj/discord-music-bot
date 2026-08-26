@@ -206,6 +206,12 @@ class Music(commands.Cog):
 
         session.q.continuation_pending = True
         try:
+            if session.q.restart_requested:
+                restart_position = session.q.restart_position
+                session.q.restart_requested = False
+                session.q.restart_position = 0
+                await self.play_current_track(ctx, session, restart_position, record_play=False)
+                return
             if not session.q.theres_next():
                 if session.q.loop_current and not session.q.skip_requested:
                     await self.play_current_track(ctx, session)
@@ -230,17 +236,21 @@ class Music(commands.Cog):
             session.q.skip_requested = False
             session.q.continuation_pending = False
 
-    async def play_current_track(self, ctx, session):
+    async def play_current_track(self, ctx, session, start_position=0, record_play=True):
         """Start the session's current track and send its now-playing controls."""
         voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
-        source = await discord.FFmpegOpusAudio.from_probe(session.q.current_music.url, **FFMPEG_OPTIONS)
+        ffmpeg_options = FFMPEG_OPTIONS.copy()
+        if start_position:
+            ffmpeg_options["before_options"] += f" -ss {start_position:.3f}"
+        source = await discord.FFmpegOpusAudio.from_probe(session.q.current_music.url, **ffmpeg_options)
 
         completed_track = session.q.current_music
         voice.play(
             source,
             after=lambda error: self.prepare_continue_queue(ctx, completed_track, error),
         )
-        if self.song_stats_store:
+        session.q.start_playback(start_position)
+        if record_play and self.song_stats_store:
             try:
                 await asyncio.to_thread(
                     self.song_stats_store.record_play,
@@ -291,6 +301,62 @@ class Music(commands.Cog):
             session.now_playing_message,
             completed_track.ytube,
         )
+
+    @staticmethod
+    def parse_seek_position(value):
+        match = re.fullmatch(r"([+-]?)(\d+)(?::(\d{1,2}))?(?::(\d{1,2}))?", value.strip())
+        if not match:
+            raise ValueError("use seconds, MM:SS, or HH:MM:SS")
+        sign, first, second, third = match.groups()
+        if third is not None:
+            hours, minutes, seconds = int(first), int(second), int(third)
+        elif second is not None:
+            hours, minutes, seconds = 0, int(first), int(second)
+        else:
+            hours, minutes, seconds = 0, 0, int(first)
+        if minutes >= 60 or seconds >= 60:
+            raise ValueError("minutes and seconds must be below 60")
+        position = hours * 3600 + minutes * 60 + seconds
+        return sign, position
+
+    @staticmethod
+    def format_seek_position(position):
+        hours, remainder = divmod(max(0, int(position)), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours:02}:{minutes:02}:{seconds:02}"
+
+    async def seek_current_track(self, ctx, value):
+        if not await self.ensure_user_in_voice(ctx) or not await self.ensure_bot_in_voice(ctx):
+            return
+        session = await self.get_session(ctx)
+        if session is None:
+            return
+        voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
+        if not voice or not (voice.is_playing() or voice.is_paused()):
+            await ctx.send("*There is no audio currently playing.*")
+            return
+        try:
+            sign, position = self.parse_seek_position(value)
+        except ValueError as error:
+            await ctx.send(f"Invalid seek position: {error}.")
+            return
+        current_position = session.q.current_position()
+        target_position = current_position + position if sign == "+" else current_position - position if sign == "-" else position
+        duration = session.q.current_music.duration
+        if target_position < 0 or (duration and target_position >= duration):
+            if duration:
+                last_position = max(0, int(duration) - 1)
+                await ctx.send(
+                    "That seek position is outside the current song. "
+                    f"Valid range: `00:00:00` to `{self.format_seek_position(last_position)}`."
+                )
+            else:
+                await ctx.send("That seek position is before the start of the current song. Valid range starts at `00:00:00`.")
+            return
+        session.q.restart_requested = True
+        session.q.restart_position = target_position
+        voice.stop()
+        await ctx.send(f"Seeked to `{self.format_seek_position(target_position)}`.")
 
     async def auto_disconnect(self, ctx, voice):
         """
@@ -614,6 +680,15 @@ class Music(commands.Cog):
             if session is None:
                 return
             voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
+            playback_active = (
+                voice
+                and (
+                    voice.is_playing()
+                    or voice.is_paused()
+                    or session.q.continuation_pending
+                    or (session.q.loop_current and not session.q.is_empty())
+                )
+            )
             for info in resolved:
                 thumbnails = info.get('thumbnails') or []
                 thumb = thumbnails[0]['url'] if thumbnails else ''
@@ -625,8 +700,30 @@ class Music(commands.Cog):
                 await ctx.author.voice.channel.connect()
                 voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
                 asyncio.create_task(self.auto_disconnect(ctx, voice))
-            if not voice.is_playing() and not voice.is_paused():
+            if not playback_active:
                 await self.play_current_track(ctx, session)
+
+            if len(resolved) == 1:
+                if playback_active:
+                    queued_track = session.q.queue[-1]
+                    duration_str = await convert_duration_pretty(queued_track.duration)
+                    dominant_color = await get_dominant_color(queued_track.thumb)
+                    embed = discord.Embed(
+                        title=escape_markdown(truncate_text(queued_track.title)),
+                        url=queued_track.ytube,
+                        color=discord.Color(dominant_color),
+                        description=f"*🎵 Added to queue in <#{session.channel}>*",
+                    )
+                    embed.set_thumbnail(url=queued_track.thumb)
+                    embed.set_author(name="Music Stream Link", url=queued_track.url)
+                    embed.add_field(name="Duration", value=duration_str, inline=True)
+                    embed.add_field(name="Added By", value=f"<@{ctx.author.id}>", inline=True)
+                    queued_message = await ctx.send(
+                        embed=embed,
+                        view=QueuedTrackControls(self, ctx.guild.id, queued_track),
+                    )
+                    session.queued_track_messages[id(queued_track)] = (queued_track, queued_message)
+                return
 
             summary = f"Spotify import: queued {len(resolved)} match{'es' if len(resolved) != 1 else ''}"
             if skipped:
@@ -855,6 +952,7 @@ class Music(commands.Cog):
                     source,
                     after=lambda error: self.prepare_continue_queue(ctx, completed_track, error),
                 )
+                session.q.start_playback()
                 if self.song_stats_store:
                     try:
                         await asyncio.to_thread(
@@ -891,6 +989,28 @@ class Music(commands.Cog):
             session.q.skip_requested = True
             voice.stop()
             await ctx.message.add_reaction("⏭️")
+
+    @commands.command(name='seek')
+    async def seek(self, ctx, *, position):
+        """Seek within the current song."""
+        await self.seek_current_track(ctx, position)
+
+    @commands.command(name='restart')
+    async def restart(self, ctx):
+        """Restart the current song from the beginning."""
+        if not await self.ensure_user_in_voice(ctx) or not await self.ensure_bot_in_voice(ctx):
+            return
+        session = await self.get_session(ctx)
+        if session is None:
+            return
+        voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
+        if not voice or not (voice.is_playing() or voice.is_paused()):
+            await ctx.send("*There is no audio currently playing.*")
+            return
+        session.q.restart_requested = True
+        session.q.restart_position = 0
+        voice.stop()
+        await ctx.send("Restarted the current song.")
 
     @commands.command(name='shuffle')
     async def shuffle_queue(self, ctx):
@@ -953,6 +1073,7 @@ class Music(commands.Cog):
         voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
         if voice.is_playing():
             voice.pause()
+            session.q.pause_playback()
             await ctx.message.add_reaction("⏸️")
         else:
             await ctx.send("*There is no audio currently playing.*")
@@ -975,6 +1096,7 @@ class Music(commands.Cog):
         voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
         if voice.is_paused():
             voice.resume()
+            session.q.resume_playback()
             await ctx.message.add_reaction("▶️")
         else:
             await ctx.send("*The music is not paused.* 🔊🆙")
@@ -1521,11 +1643,17 @@ class MusicControls(discord.ui.View):
         voice = interaction.guild.voice_client
         if voice.is_playing():
             voice.pause()
+            session = self.get_session()
+            if session:
+                session.q.pause_playback()
             button.emoji = "▶️"
             await interaction.response.edit_message(view=self)
             return
         if voice.is_paused():
             voice.resume()
+            session = self.get_session()
+            if session:
+                session.q.resume_playback()
             button.emoji = "⏸️"
             await interaction.response.edit_message(view=self)
             return

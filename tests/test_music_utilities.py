@@ -49,6 +49,25 @@ class QueueTests(unittest.TestCase):
 
         self.assertFalse(queue.loop_current)
 
+    def test_playback_position_stops_advancing_while_paused(self):
+        queue = MUSIC_UTILITIES.Queue()
+        original_monotonic = MUSIC_UTILITIES.time.monotonic
+        try:
+            MUSIC_UTILITIES.time.monotonic = lambda: 100
+            queue.start_playback(15)
+            MUSIC_UTILITIES.time.monotonic = lambda: 112
+            self.assertEqual(queue.current_position(), 27)
+
+            queue.pause_playback()
+            MUSIC_UTILITIES.time.monotonic = lambda: 140
+            self.assertEqual(queue.current_position(), 27)
+
+            queue.resume_playback()
+            MUSIC_UTILITIES.time.monotonic = lambda: 145
+            self.assertEqual(queue.current_position(), 32)
+        finally:
+            MUSIC_UTILITIES.time.monotonic = original_monotonic
+
 
 if __name__ == "__main__":
     unittest.main()

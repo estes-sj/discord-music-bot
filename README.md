@@ -132,6 +132,26 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
+  <summary><code>.seek &lt;position&gt;</code> - Jumps within the current song</summary>
+
+  Use seconds, `MM:SS`, or `HH:MM:SS` for an absolute position. Prefix the value with `+` or `-` to move relative to the current position.
+
+  ```text
+  .seek +15       # Forward 15 seconds
+  .seek +00:15    # Forward 15 seconds
+  .seek 00:42     # Jump to 42 seconds from the beginning
+  .seek -15       # Back 15 seconds
+  .seek -00:15    # Back 15 seconds
+  ```
+</details>
+
+<details>
+  <summary><code>.restart</code> - Restarts the current song</summary>
+
+  Starts the current song again from the beginning without changing the queue.
+</details>
+
+<details>
   <summary><code>.shuffle</code> - Shuffles upcoming songs</summary>
 
   Keeps the current song in place and randomizes the remaining queued songs.
