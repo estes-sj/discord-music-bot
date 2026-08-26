@@ -377,9 +377,9 @@ Once the bot is running, it will appear online in your Discord server and be abl
 
 ### Stuttering audio
 If the container logs include something like `[youtube] player: Signature extraction failed: Some formats may be missing`, chances are yt-dlp has to be updated for those changed/new formats.
-If it has been awhile since rebuilding containers, it is recommended to see if picks up a newer version of yt-dlp and solves the issue.
+If it has been awhile since rebuilding containers, it is recommended to see if it picks up a newer version of yt-dlp and solves the issue. Ensure `YTDLP_UPDATE_SCHEDULE` is set in the `.env` file to automatically update yt-dlp on a schedule.
 
-One way without rebuilding the container is to run the following command in the container:
+One way without rebuilding the container is to run the following command in the container to manually update:
 ```bash
 # Update yt-dlp to the latest version
 docker compose exec -T discord-music-bot python3 -m pip install --no-cache-dir --upgrade yt-dlp
