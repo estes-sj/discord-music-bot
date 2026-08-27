@@ -48,11 +48,23 @@ def parse_playlist_options(value, max_tracks, default_tracks, default_shuffle):
             options["shuffle"] = True
         elif token == "--ordered":
             options["shuffle"] = False
-        elif token in ("--count", "--range"):
+        elif token == "--count":
             index += 1
             if index >= len(tokens) or options[token[2:]] is not None:
                 raise SpotifyError(f"Invalid {token} option")
             options[token[2:]] = tokens[index]
+        elif token == "--range":
+            index += 1
+            if index >= len(tokens) or options["range"] is not None:
+                raise SpotifyError("Invalid --range option")
+            range_tokens = []
+            while index < len(tokens) and not tokens[index].startswith("--"):
+                range_tokens.append(tokens[index])
+                index += 1
+            if not range_tokens:
+                raise SpotifyError("Invalid --range option")
+            options["range"] = "".join(range_tokens)
+            continue
         else:
             raise SpotifyError(f"Unknown playlist option: {token}")
         index += 1

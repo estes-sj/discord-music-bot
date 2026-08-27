@@ -48,7 +48,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
       <img src="docs/play_queue.png" alt="Add to Queue Example" width="40%"/>
   </div>
 
-  For playlists, you'll receive a prompt to select the number of tracks to queue and whether to shuffle them. The bot queues matches it finds and reports how many selected tracks could not be resolved. Some of the default options can be configured in the `.env` file, including the maximum number of tracks accepted from a playlist or album import, the default number of tracks to queue, and whether to shuffle them by default.
+  For playlists, you'll receive a prompt to select the number of tracks to queue and whether to shuffle them. Imports larger than 10 tracks queue the first 10 before the remaining tracks are added in the background; one import-status message is updated with progress and completion. The bot queues matches it finds and reports how many selected tracks could not be resolved. Some of the default options can be configured in the `.env` file, including the maximum number of tracks accepted from a playlist or album import, the default number of tracks to queue, and whether to shuffle them by default.
 
   ```text
   .play https://www.youtube.com/playlist?list=PLAYLIST_ID

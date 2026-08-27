@@ -41,6 +41,11 @@ FFMPEG_OPTIONS = {
     'options': '-vn'
 }
 
+# To avoid large load times for long playlists, do an initial load of the set # of tracks, then load the rest in the background.
+PLAYLIST_INITIAL_BATCH_SIZE = 5
+# After each # loaded, update the progress message to the user.
+PLAYLIST_PROGRESS_BATCH_SIZE = 5
+
 logger = logging.getLogger("discord")
 
 class Music(commands.Cog):
@@ -597,6 +602,163 @@ class Music(commands.Cog):
 
         return await asyncio.to_thread(extract)
 
+    async def queue_playlist_items(self, ctx, session, items):
+        """Queue resolved YouTube items and begin playback when necessary."""
+        queued = 0
+        for info in items:
+            try:
+                thumbnails = info.get('thumbnails') or []
+                session.q.enqueue(
+                    info['title'], info['url'], thumbnails[0]['url'] if thumbnails else '',
+                    info['webpage_url'], info.get('duration') or 0, ctx.author.id,
+                )
+                queued += 1
+            except KeyError:
+                continue
+
+        if not queued:
+            return 0
+
+        voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
+        if not voice:
+            await ctx.author.voice.channel.connect()
+            voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
+            asyncio.create_task(self.auto_disconnect(ctx, voice))
+
+        playback_active = (
+            voice.is_playing()
+            or voice.is_paused()
+            or session.q.continuation_pending
+            or (session.q.loop_current and not session.q.is_empty())
+        )
+        if not playback_active:
+            await self.play_current_track(ctx, session)
+        return queued
+
+    async def edit_playlist_import_status(self, message, content):
+        try:
+            await message.edit(content=content)
+        except discord.HTTPException as error:
+            logger.warning("Could not update playlist import status: %s", error)
+
+    @staticmethod
+    def playlist_progress_bar(processed, total, width=10):
+        completed_cells = width if not total else min(width, (processed * width) // total)
+        return "🟩" * completed_cells + "⬜" * (width - completed_cells)
+
+    def playlist_import_progress(self, service, processed, total, queued, item_name):
+        remaining = max(0, total - processed)
+        percentage = 100 if not total else (processed * 100) // total
+        return (
+            f"🎵 **{service} import in progress**\n"
+            f"{self.playlist_progress_bar(processed, total)} `{percentage}%` ({processed}/{total})\n"
+            f"Queued: **{queued}** {item_name}; adding **{remaining}** remaining in the background..."
+        )
+
+    def playlist_import_complete(self, service, total, queued, item_name, skipped=0):
+        summary = (
+            f"✅ **{service} import complete**\n"
+            f"{self.playlist_progress_bar(total, total)} `100%` ({total}/{total})\n"
+            f"Queued: **{queued}** {item_name}."
+        )
+        if skipped:
+            summary += f" Skipped: **{skipped}** with no YouTube match."
+        return summary + " Use `.q` to view the queue."
+
+    async def finish_youtube_playlist_import(self, ctx, session, status_message, remaining_entries, queued, total):
+        try:
+            for index in range(0, len(remaining_entries), PLAYLIST_PROGRESS_BATCH_SIZE):
+                batch = remaining_entries[index:index + PLAYLIST_PROGRESS_BATCH_SIZE]
+                queued += await self.queue_playlist_items(ctx, session, batch)
+                remaining = len(remaining_entries) - index - len(batch)
+                if remaining:
+                    await self.edit_playlist_import_status(
+                        status_message,
+                        self.playlist_import_progress(
+                            "YouTube playlist", total - remaining, total, queued, "videos"
+                        ),
+                    )
+            await self.edit_playlist_import_status(
+                status_message,
+                self.playlist_import_complete("YouTube playlist", total, queued, "videos"),
+            )
+        except Exception as error:
+            logger.exception("YouTube playlist background import failed")
+            await self.edit_playlist_import_status(
+                status_message,
+                f"YouTube playlist import stopped after queuing {queued} of {total} selected videos: {error}",
+            )
+
+    async def start_youtube_playlist_import(self, ctx, session, selected_entries):
+        initial_entries = selected_entries[:PLAYLIST_INITIAL_BATCH_SIZE]
+        remaining_entries = selected_entries[PLAYLIST_INITIAL_BATCH_SIZE:]
+        queued = await self.queue_playlist_items(ctx, session, initial_entries)
+        status_message = await ctx.send(
+            self.playlist_import_progress(
+                "YouTube playlist", len(initial_entries), len(selected_entries), queued, "videos"
+            )
+        )
+        asyncio.create_task(
+            self.finish_youtube_playlist_import(
+                ctx, session, status_message, remaining_entries, queued, len(selected_entries)
+            )
+        )
+
+    async def resolve_spotify_tracks(self, tracks):
+        resolved = []
+        skipped = 0
+        for track in tracks:
+            try:
+                resolved.append(await self.resolve_youtube_track(track_query(track)))
+            except Exception:
+                skipped += 1
+        return resolved, skipped
+
+    async def finish_spotify_playlist_import(
+        self, ctx, session, status_message, remaining_tracks, queued, skipped, total
+    ):
+        try:
+            for index in range(0, len(remaining_tracks), PLAYLIST_PROGRESS_BATCH_SIZE):
+                batch = remaining_tracks[index:index + PLAYLIST_PROGRESS_BATCH_SIZE]
+                resolved, batch_skipped = await self.resolve_spotify_tracks(batch)
+                skipped += batch_skipped
+                queued += await self.queue_playlist_items(ctx, session, resolved)
+                remaining = len(remaining_tracks) - index - len(batch)
+                if remaining:
+                    await self.edit_playlist_import_status(
+                        status_message,
+                        self.playlist_import_progress(
+                            "Spotify", total - remaining, total, queued, "matches"
+                        ),
+                    )
+            await self.edit_playlist_import_status(
+                status_message,
+                self.playlist_import_complete("Spotify", total, queued, "matches", skipped),
+            )
+        except Exception as error:
+            logger.exception("Spotify playlist background import failed")
+            await self.edit_playlist_import_status(
+                status_message,
+                f"Spotify import stopped after queuing {queued} of {total} selected tracks: {error}",
+            )
+
+    async def start_spotify_playlist_import(self, ctx, session, selected_tracks):
+        initial_tracks = selected_tracks[:PLAYLIST_INITIAL_BATCH_SIZE]
+        remaining_tracks = selected_tracks[PLAYLIST_INITIAL_BATCH_SIZE:]
+        async with ctx.typing():
+            resolved, skipped = await self.resolve_spotify_tracks(initial_tracks)
+        queued = await self.queue_playlist_items(ctx, session, resolved)
+        status_message = await ctx.send(
+            self.playlist_import_progress(
+                "Spotify", len(initial_tracks), len(selected_tracks), queued, "matches"
+            )
+        )
+        asyncio.create_task(
+            self.finish_spotify_playlist_import(
+                ctx, session, status_message, remaining_tracks, queued, skipped, len(selected_tracks)
+            )
+        )
+
     async def import_youtube_playlist(self, ctx, url, options):
         try:
             entries = await self.get_youtube_playlist_entries(url)
@@ -610,6 +772,9 @@ class Music(commands.Cog):
 
         session = await self.get_session(ctx)
         if session is None:
+            return
+        if len(selected_entries) > PLAYLIST_INITIAL_BATCH_SIZE:
+            await self.start_youtube_playlist_import(ctx, session, selected_entries)
             return
         voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
         queued = 0
@@ -664,6 +829,13 @@ class Music(commands.Cog):
                 await ctx.send("No playable Spotify tracks matched that selection.")
                 return
 
+            session = await self.get_session(ctx)
+            if session is None:
+                return
+            if len(selected_tracks) > PLAYLIST_INITIAL_BATCH_SIZE:
+                await self.start_spotify_playlist_import(ctx, session, selected_tracks)
+                return
+
             resolved = []
             skipped = 0
             async with ctx.typing():
@@ -676,9 +848,6 @@ class Music(commands.Cog):
                 await ctx.send("No selected Spotify tracks could be matched on YouTube.")
                 return
 
-            session = await self.get_session(ctx)
-            if session is None:
-                return
             voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
             playback_active = (
                 voice
@@ -1489,7 +1658,10 @@ class SpotifyPlaylistModal(discord.ui.Modal, title="Spotify playlist import"):
         self.music_cog = music_cog
         self.ctx = ctx
         self.resource = resource
+        max_tracks = music_cog.spotify_max_tracks
+        self.count.placeholder = f"1-{max_tracks}"
         self.count.default = str(music_cog.spotify_default_tracks)
+        self.count.max_length = len(str(max_tracks))
         self.ordering.default = "shuffle" if music_cog.spotify_default_shuffle else "ordered"
 
     async def on_submit(self, interaction):
@@ -1551,7 +1723,10 @@ class YouTubePlaylistModal(discord.ui.Modal, title="YouTube playlist import"):
         self.music_cog = music_cog
         self.ctx = ctx
         self.playlist_url = playlist_url
+        max_tracks = music_cog.spotify_max_tracks
+        self.count.placeholder = f"1-{max_tracks}"
         self.count.default = str(music_cog.spotify_default_tracks)
+        self.count.max_length = len(str(max_tracks))
         self.ordering.default = "shuffle" if music_cog.spotify_default_shuffle else "ordered"
 
     async def on_submit(self, interaction):

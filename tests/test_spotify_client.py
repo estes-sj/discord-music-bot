@@ -26,6 +26,10 @@ class SpotifyClientTests(unittest.TestCase):
         tracks = list(range(1, 15))
         self.assertEqual(SPOTIFY_CLIENT.select_tracks(tracks, options), [1, 2, 3, 5, 7, 9, 10])
 
+    def test_playlist_options_allow_whitespace_between_range_fragments(self):
+        options = SPOTIFY_CLIENT.parse_playlist_options("--range 50-60, 65, 68-78 --count 20 --ordered", 20, 20, False)
+        self.assertEqual(options["ranges"], [(50, 60), (65, 65), (68, 78)])
+
     def test_playlist_options_expand_short_selection_to_requested_count(self):
         options = SPOTIFY_CLIENT.parse_playlist_options("--count 10 --range 1-3,5,7,9-10 --ordered", 20, 20, False)
         tracks = list(range(1, 15))
