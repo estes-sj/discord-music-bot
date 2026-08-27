@@ -635,9 +635,12 @@ class Music(commands.Cog):
             await self.play_current_track(ctx, session)
         return queued
 
-    async def edit_playlist_import_status(self, message, content):
+    async def edit_playlist_import_status(self, message, content, view=...):
         try:
-            await message.edit(content=content)
+            if view is ...:
+                await message.edit(content=content)
+            else:
+                await message.edit(content=content, view=view)
         except discord.HTTPException as error:
             logger.warning("Could not update playlist import status: %s", error)
 
@@ -665,9 +668,31 @@ class Music(commands.Cog):
             summary += f" Skipped: **{skipped}** with no YouTube match."
         return summary + " Use `.q` to view the queue."
 
-    async def finish_youtube_playlist_import(self, ctx, session, status_message, remaining_entries, queued, total):
+    def playlist_import_cancelled(self, service, processed, total, queued, item_name, skipped=0):
+        summary = (
+            f"🛑 **{service} import cancelled**\n"
+            f"{self.playlist_progress_bar(processed, total)} ({processed}/{total})\n"
+            f"Queued before cancellation: **{queued}** {item_name}."
+        )
+        if skipped:
+            summary += f" Skipped: **{skipped}** with no YouTube match."
+        return summary + " Use `.q` to view the queue."
+
+    async def finish_youtube_playlist_import(
+        self, ctx, session, status_message, cancel_view, remaining_entries, queued, total
+    ):
         try:
             for index in range(0, len(remaining_entries), PLAYLIST_PROGRESS_BATCH_SIZE):
+                if cancel_view.cancelled:
+                    cancel_view.finish()
+                    await self.edit_playlist_import_status(
+                        status_message,
+                        self.playlist_import_cancelled(
+                            "YouTube playlist", total - len(remaining_entries) + index, total, queued, "videos"
+                        ),
+                        view=cancel_view,
+                    )
+                    return
                 batch = remaining_entries[index:index + PLAYLIST_PROGRESS_BATCH_SIZE]
                 queued += await self.queue_playlist_items(ctx, session, batch)
                 remaining = len(remaining_entries) - index - len(batch)
@@ -678,29 +703,35 @@ class Music(commands.Cog):
                             "YouTube playlist", total - remaining, total, queued, "videos"
                         ),
                     )
+            cancel_view.finish()
             await self.edit_playlist_import_status(
                 status_message,
                 self.playlist_import_complete("YouTube playlist", total, queued, "videos"),
+                view=cancel_view,
             )
         except Exception as error:
             logger.exception("YouTube playlist background import failed")
+            cancel_view.finish()
             await self.edit_playlist_import_status(
                 status_message,
                 f"YouTube playlist import stopped after queuing {queued} of {total} selected videos: {error}",
+                view=cancel_view,
             )
 
     async def start_youtube_playlist_import(self, ctx, session, selected_entries):
         initial_entries = selected_entries[:PLAYLIST_INITIAL_BATCH_SIZE]
         remaining_entries = selected_entries[PLAYLIST_INITIAL_BATCH_SIZE:]
         queued = await self.queue_playlist_items(ctx, session, initial_entries)
+        cancel_view = PlaylistImportCancelView(ctx.author.id, ctx.guild.id)
         status_message = await ctx.send(
             self.playlist_import_progress(
                 "YouTube playlist", len(initial_entries), len(selected_entries), queued, "videos"
-            )
+            ),
+            view=cancel_view,
         )
-        asyncio.create_task(
+        cancel_view.task = asyncio.create_task(
             self.finish_youtube_playlist_import(
-                ctx, session, status_message, remaining_entries, queued, len(selected_entries)
+                ctx, session, status_message, cancel_view, remaining_entries, queued, len(selected_entries)
             )
         )
 
@@ -715,10 +746,20 @@ class Music(commands.Cog):
         return resolved, skipped
 
     async def finish_spotify_playlist_import(
-        self, ctx, session, status_message, remaining_tracks, queued, skipped, total
+        self, ctx, session, status_message, cancel_view, remaining_tracks, queued, skipped, total
     ):
         try:
             for index in range(0, len(remaining_tracks), PLAYLIST_PROGRESS_BATCH_SIZE):
+                if cancel_view.cancelled:
+                    cancel_view.finish()
+                    await self.edit_playlist_import_status(
+                        status_message,
+                        self.playlist_import_cancelled(
+                            "Spotify", total - len(remaining_tracks) + index, total, queued, "matches", skipped
+                        ),
+                        view=cancel_view,
+                    )
+                    return
                 batch = remaining_tracks[index:index + PLAYLIST_PROGRESS_BATCH_SIZE]
                 resolved, batch_skipped = await self.resolve_spotify_tracks(batch)
                 skipped += batch_skipped
@@ -731,15 +772,19 @@ class Music(commands.Cog):
                             "Spotify", total - remaining, total, queued, "matches"
                         ),
                     )
+            cancel_view.finish()
             await self.edit_playlist_import_status(
                 status_message,
                 self.playlist_import_complete("Spotify", total, queued, "matches", skipped),
+                view=cancel_view,
             )
         except Exception as error:
             logger.exception("Spotify playlist background import failed")
+            cancel_view.finish()
             await self.edit_playlist_import_status(
                 status_message,
                 f"Spotify import stopped after queuing {queued} of {total} selected tracks: {error}",
+                view=cancel_view,
             )
 
     async def start_spotify_playlist_import(self, ctx, session, selected_tracks):
@@ -748,14 +793,16 @@ class Music(commands.Cog):
         async with ctx.typing():
             resolved, skipped = await self.resolve_spotify_tracks(initial_tracks)
         queued = await self.queue_playlist_items(ctx, session, resolved)
+        cancel_view = PlaylistImportCancelView(ctx.author.id, ctx.guild.id)
         status_message = await ctx.send(
             self.playlist_import_progress(
                 "Spotify", len(initial_tracks), len(selected_tracks), queued, "matches"
-            )
+            ),
+            view=cancel_view,
         )
-        asyncio.create_task(
+        cancel_view.task = asyncio.create_task(
             self.finish_spotify_playlist_import(
-                ctx, session, status_message, remaining_tracks, queued, skipped, len(selected_tracks)
+                ctx, session, status_message, cancel_view, remaining_tracks, queued, skipped, len(selected_tracks)
             )
         )
 
@@ -1616,6 +1663,40 @@ class Music(commands.Cog):
 
 def setup(bot):
     bot.add_cog(Music(bot))
+
+
+class PlaylistImportCancelView(discord.ui.View):
+    def __init__(self, owner_id, guild_id):
+        super().__init__(timeout=None)
+        self.owner_id = owner_id
+        self.guild_id = guild_id
+        self.cancelled = False
+        self.task = None
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Only the user who started this import can cancel it.", ephemeral=True)
+            return False
+        voice = interaction.guild.voice_client if interaction.guild else None
+        user_voice = getattr(interaction.user, "voice", None)
+        if not voice or not user_voice or user_voice.channel != voice.channel:
+            await interaction.response.send_message("Join my voice channel before cancelling this import.", ephemeral=True)
+            return False
+        return True
+
+    def finish(self):
+        for child in self.children:
+            child.disabled = True
+        self.stop()
+
+    @discord.ui.button(label="Cancel import", emoji="🛑", style=discord.ButtonStyle.danger)
+    async def cancel_import(self, interaction, button):
+        self.cancelled = True
+        self.finish()
+        await interaction.response.edit_message(
+            content="🛑 **Cancelling playlist import**\nThe current batch will finish; no further tracks will be added.",
+            view=self,
+        )
 
 
 class SpotifyPlaylistLauncher(discord.ui.View):

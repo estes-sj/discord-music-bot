@@ -105,6 +105,11 @@ See [Usage](#usage) for more information and examples on specific commands and f
   ```
 
   The bot queues matches it finds and reports how many selected tracks could not be resolved. Spotify credentials, access tokens, and secrets are never sent to a server channel or logged.
+
+  <div class="image-container" align="center">
+      <img src="docs/playlist_import_progress.png" alt="Playlist Import Progress Example" width="65%"/>
+  </div>
+
 </details>
 
 <details>
