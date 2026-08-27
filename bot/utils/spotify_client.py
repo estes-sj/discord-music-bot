@@ -60,23 +60,45 @@ def parse_playlist_options(value, max_tracks, default_tracks, default_shuffle):
     count = default_tracks if options["count"] is None else int(options["count"])
     if count < 1 or count > max_tracks:
         raise SpotifyError(f"Count must be between 1 and {max_tracks}")
-    start, end = (1, None)
+    ranges = [(1, None)]
     if options["range"]:
-        range_match = re.fullmatch(r"(\d+)-(\d+)", options["range"])
-        if not range_match:
-            raise SpotifyError("Range must use START-END, such as 20-40")
-        start, end = (int(range_match.group(1)), int(range_match.group(2)))
-        if start < 1 or end < start:
-            raise SpotifyError("Range positions must be positive and increasing")
-    return {"count": count, "start": start, "end": end, "shuffle": options["shuffle"]}
+        ranges = []
+        for range_part in options["range"].split(","):
+            range_match = re.fullmatch(r"(\d+)(?:-(\d+))?", range_part)
+            if not range_match:
+                raise SpotifyError("Range must use positions or START-END ranges, such as 1-3,5,7,9-10")
+            start = int(range_match.group(1))
+            end = int(range_match.group(2) or start)
+            if start < 1 or end < start:
+                raise SpotifyError("Range positions must be positive and increasing")
+            ranges.append((start, end))
+    return {"count": count, "ranges": ranges, "shuffle": options["shuffle"]}
 
 
 def select_tracks(tracks, options):
-    eligible = tracks[options["start"] - 1:options["end"]]
-    selected_count = min(options["count"], len(eligible))
+    ranges = options.get("ranges")
+    if ranges is None:
+        ranges = [(options["start"], options["end"])]
+    selected_indices = []
+    for start, end in ranges:
+        end = len(tracks) if end is None else min(end, len(tracks))
+        for track_index in range(start - 1, end):
+            if track_index not in selected_indices:
+                selected_indices.append(track_index)
+
+    final_range_end = ranges[-1][1]
+    if final_range_end is not None:
+        for track_index in range(final_range_end, len(tracks)):
+            if len(selected_indices) >= options["count"]:
+                break
+            if track_index not in selected_indices:
+                selected_indices.append(track_index)
+
+    eligible = [tracks[track_index] for track_index in selected_indices[:options["count"]]]
+    selected_count = len(eligible)
     if options["shuffle"]:
         return random.sample(eligible, selected_count)
-    return eligible[:selected_count]
+    return eligible
 
 
 class SpotifyClient:

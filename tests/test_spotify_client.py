@@ -21,6 +21,16 @@ class SpotifyClientTests(unittest.TestCase):
         options = SPOTIFY_CLIENT.parse_playlist_options("--count 2 --range 2-4 --ordered", 20, 20, False)
         self.assertEqual(SPOTIFY_CLIENT.select_tracks(["one", "two", "three", "four"], options), ["two", "three"])
 
+    def test_playlist_options_support_multiple_ranges_and_positions(self):
+        options = SPOTIFY_CLIENT.parse_playlist_options("--count 7 --range 1-3,5,7,9-10 --ordered", 20, 20, False)
+        tracks = list(range(1, 15))
+        self.assertEqual(SPOTIFY_CLIENT.select_tracks(tracks, options), [1, 2, 3, 5, 7, 9, 10])
+
+    def test_playlist_options_expand_short_selection_to_requested_count(self):
+        options = SPOTIFY_CLIENT.parse_playlist_options("--count 10 --range 1-3,5,7,9-10 --ordered", 20, 20, False)
+        tracks = list(range(1, 15))
+        self.assertEqual(SPOTIFY_CLIENT.select_tracks(tracks, options), [1, 2, 3, 5, 7, 9, 10, 11, 12, 13])
+
     def test_playlist_options_enforce_maximum(self):
         with self.assertRaises(SPOTIFY_CLIENT.SpotifyError):
             SPOTIFY_CLIENT.parse_playlist_options("--count 21", 20, 20, False)

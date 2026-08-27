@@ -817,7 +817,7 @@ class Music(commands.Cog):
         :param ctx: discord.ext.commands.Context
         :param query: Search text, a YouTube URL, or a Spotify URL.
 
-        Spotify album and playlist imports support --count N, --range START-END,
+        Spotify album and playlist imports support --count N, --range POSITION[,POSITION|START-END...],
         --ordered, and --shuffle. Playlists without options open a configuration prompt.
         """
         try:
@@ -850,7 +850,7 @@ class Music(commands.Cog):
                 )
                 return
             if spotify_resource.resource_type == "track":
-                options = {"count": 1, "start": 1, "end": None, "shuffle": False}
+                options = {"count": 1, "ranges": [(1, 1)], "shuffle": False}
             await self.import_spotify(ctx, spotify_resource, options)
             return
 
@@ -1475,7 +1475,7 @@ class SpotifyPlaylistLauncher(discord.ui.View):
 class SpotifyPlaylistModal(discord.ui.Modal, title="Spotify playlist import"):
     count = discord.ui.TextInput(label="Track count", placeholder="1-20", default="20", max_length=2)
     range_value = discord.ui.TextInput(
-        label="Position range (optional)", placeholder="20-40", required=False, max_length=15
+        label="Positions or ranges (optional)", placeholder="1-3,5,7,9-10", required=False, max_length=100
     )
     ordering = discord.ui.TextInput(
         label="Ordering: ordered or shuffle",
@@ -1537,7 +1537,7 @@ class YouTubePlaylistLauncher(discord.ui.View):
 class YouTubePlaylistModal(discord.ui.Modal, title="YouTube playlist import"):
     count = discord.ui.TextInput(label="Video count", placeholder="1-20", default="20", max_length=2)
     range_value = discord.ui.TextInput(
-        label="Position range (optional)", placeholder="20-40", required=False, max_length=15
+        label="Positions or ranges (optional)", placeholder="1-3,5,7,9-10", required=False, max_length=100
     )
     ordering = discord.ui.TextInput(
         label="Ordering: ordered or shuffle",

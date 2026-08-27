@@ -58,11 +58,14 @@ See [Usage](#usage) for more information and examples on specific commands and f
       <img src="docs/playlist_import_form.png" alt="Playlist Import Example" width="40%"/>
   </div>
 
-  Alternatively, arguments can be used in the command. Use `--count`, `--range START-END`, `--ordered`, or `--shuffle` to skip the prompt.
+  Alternatively, arguments can be used in the command. Use `--count`, `--range POSITION[,POSITION|START-END...]`, `--ordered`, or `--shuffle` to skip the prompt. Positions are 1-based and inclusive, so `1-3,5,7,9-10` selects positions 1, 2, 3, 5, 7, 9, and 10 in that order. Duplicate positions from overlapping ranges are included once.
+
+  `--count` determines the final number of songs. If the requested ranges contain more songs than `--count`, the bot keeps the first selected songs in range order. If they contain fewer, it fills the remainder from the tracks immediately after the final requested range, stopping at the end of the playlist. For example, `--range 1-3,5,7,9-10 --count 10` selects positions 1, 2, 3, 5, 7, 9, 10, 11, 12, and 13. `--shuffle` randomizes the final selected songs after this expansion or trimming.
 
   ```text
   .play https://www.youtube.com/playlist?list=PLAYLIST_ID --count 20 --ordered
   .play https://www.youtube.com/playlist?list=PLAYLIST_ID --range 20-40 --count 10 --shuffle
+  .play https://www.youtube.com/playlist?list=PLAYLIST_ID --range 1-3,5,7,9-10 --count 10 --ordered
   ```
 
 </details>
@@ -89,13 +92,14 @@ See [Usage](#usage) for more information and examples on specific commands and f
       <img src="docs/spotify_callback_url.png" alt="Spotify Callback URL Example" width="70%"/>
   </div>
 
-  Spotify currently returns playlist items only for playlists owned by the authorizing account or where that account is a collaborator. For a public playlist owned by someone else, save or copy it into the authorizing Spotify account first. Playlists with no options open a requester-only configuration modal. Position ranges are 1-based and inclusive.
+  Spotify currently returns playlist items only for playlists owned by the authorizing account or where that account is a collaborator. For a public playlist owned by someone else, save or copy it into the authorizing Spotify account first. Playlists with no options open a requester-only configuration modal. Position selections use the same 1-based, inclusive `POSITION[,POSITION|START-END...]` format and count behavior described above.
 
   ```text
   .play https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC
   .play https://open.spotify.com/album/1ATL5GLyefJaxhQzSPVrLX --count 8 --ordered
   .play https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M --count 10 --shuffle
   .play https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M --range 20-40 --count 15 --ordered
+  .play https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M --range 1-3,5,7,9-10 --count 10 --ordered
   .spotifyclear
   .spotifystatus
   ```
