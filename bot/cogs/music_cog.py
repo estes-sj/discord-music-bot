@@ -1364,8 +1364,9 @@ class Music(commands.Cog):
         first_song_thumb = session.q.queue[0].thumb if session.q.queue else None
         dominant_color = await get_dominant_color(first_song_thumb) if first_song_thumb else 0x3498db  # Default to blue
 
-        # Generate queue list with the new format
+        # Generate queue list with the actively playing track called out by identity.
         queue_list = [
+            f"{'▶️ **Now Playing** ' if song is session.q.current_music else ''}"
             f"**{i + 1}.** {escape_markdown(truncate_text(song.title))}\n"
             f"{await convert_duration_pretty(song.duration)} | [Link]({song.ytube}) | <@{song.user}>"
             for i, song in enumerate(session.q.queue)
@@ -1378,7 +1379,7 @@ class Music(commands.Cog):
         embeds = []
 
         for chunk in chunks:
-            embed = discord.Embed(title="🎧 Current Queue", color=discord.Color(dominant_color))
+            embed = discord.Embed(title=f"🎧 Current Queue (Playing #{session.q.size()})", color=discord.Color(dominant_color))
 
             # Join the chunk into a single string for the embed
             embed.description = "\n\n".join(chunk)  # Two newlines for better separation
