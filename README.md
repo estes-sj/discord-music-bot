@@ -268,7 +268,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 | `.up`                               | Reports container ID and uptime.                                                              |
 
 ### Interactions
-This bot also includes Discord interactions for quick pause/play, skip, queue management, and like/dislike actions. The below image shows the interaction buttons that appear in the now-playing message. From left-to-right, the buttons are: ⏭️ Skip, ▶️ Play / ⏸️ Pause, 🔁 Loop, 🔀 Shuffle, ⏹️ Stop, 👍 Like, 👎 Dislike. The Like and Dislike buttons are only available while the song is actively playing.
+This bot also includes Discord interactions for quick pause/play, skip, queue management, and like/dislike actions. The below image shows the interaction buttons that appear in the now-playing message. From left-to-right, the buttons are: ⏭️ Skip, ▶️ Play / ⏸️ Pause, 🔁 Loop, 🔀 Shuffle, ⏹️ Stop, 👍 Like, 👎 Dislike. The Like and Dislike buttons are only available while the song is actively playing. If the interactions expire when they should still be active (e.g. hitting it returns "the bot did not respond on time"), you can use `.now`/`.playingNow` to get refreshed interactions.
   <div class="image-container" align="center">
       <img src="docs/interaction_buttons_currently_playing.png" alt="Currently Playing Interactions" width="50%"/>
   </div>
