@@ -23,8 +23,11 @@ from bot.views.playback_views import MusicControls
 from bot.views.config_views import GuildConfigLauncher, GuildConfigModal
 from bot.views.playlist_views import (
     PlaylistImportCancelView,
+    SavedPlaylistLauncher,
+    SavedPlaylistResultPaginator,
     SpotifyPlaylistLauncher,
     YouTubePlaylistLauncher,
+    UserPlaylistPlayLauncher,
 )
 from bot.views.queue_views import (
     QueuedTrackControls,
@@ -43,6 +46,7 @@ from bot.utils.spotify_client import (
     track_query,
 )
 from bot.utils.spotify_store import SpotifyStoreError
+from bot.utils.user_playlist_store import UserPlaylistStore
 
 # List of active sessions.
 sessions = []
@@ -73,11 +77,14 @@ class Music(commands.Cog):
         self.command_cooldowns = {}
         self.spotify_store = getattr(self.bot, "spotify_store", None)
         self.song_stats_store = getattr(self.bot, "song_stats_store", None)
+        self.user_playlist_store = getattr(self.bot, "user_playlist_store", None)
         self.guild_config_store = getattr(self.bot, "guild_config_store", None)
         if self.spotify_store is None:
             logger.warning("Spotify support is not configured for this bot.")
         if self.song_stats_store is None:
             logger.warning("Song statistics are not configured for this bot.")
+        if self.user_playlist_store is None:
+            logger.warning("User playlists are not configured for this bot.")
 
 
     def get_guild_config(self, guild_id):
@@ -309,7 +316,7 @@ class Music(commands.Cog):
                     await self.play_current_track(ctx, session)
                     return
                 await self.retire_now_playing_controls(session)
-                await ctx.send("*Queue has ended* ✅")
+                await ctx.channel.send("*Queue has ended* ✅")
                 await asyncio.sleep(0)
                 if session in sessions:
                     sessions.remove(session)
@@ -387,7 +394,7 @@ class Music(commands.Cog):
                 session.now_playing_message = None
                 session.now_playing_track_url = None
 
-        session.now_playing_message = await ctx.send(embed=embed, view=controls)
+        session.now_playing_message = await ctx.channel.send(embed=embed, view=controls)
         session.now_playing_track_url = completed_track.ytube
         session.now_playing_messages[id(session.now_playing_message)] = (
             session.now_playing_message,
@@ -1174,6 +1181,18 @@ class Music(commands.Cog):
             inline=False,
         )
         embed.add_field(
+            name="Personal playlists",
+            value=(
+                f"`{prefix}playlist` - List your saved playlists.\n"
+                f"`{prefix}playlist create <name>` - Create a playlist.\n"
+                f"`{prefix}playlist add <name> <source>` - Save a YouTube/Spotify song or playlist.\n"
+                f"`{prefix}playlist view [@member] [name]` - View saved playlists or songs.\n"
+                f"`{prefix}playlist play <name> [@member]` - Queue a saved playlist.\n"
+                f"`{prefix}playlist remove|move|delete` - Edit or delete your saved playlists."
+            ),
+            inline=False,
+        )
+        embed.add_field(
             name="Spotify and server settings",
             value=(
                 f"`{prefix}config` - Open the server music settings form (Manage Server required).\n"
@@ -1219,6 +1238,397 @@ class Music(commands.Cog):
             getattr(self.song_stats_store, method_name), ctx.guild.id, *arguments
         )
         await self.send_song_ranking(ctx, title, rows, empty_message)
+
+    async def ensure_user_playlist_store(self, ctx):
+        if self.user_playlist_store:
+            return True
+        await ctx.send("Personal playlists are currently unavailable.", ephemeral=bool(ctx.interaction))
+        return False
+
+    async def resolve_user_playlist_source(self, ctx, source, maximum_tracks, options=None, progress_callback=None):
+        spotify_resource = parse_resource(source)
+        if spotify_resource:
+            credentials = await self.get_spotify_credentials(ctx)
+            if not credentials:
+                return [], 0
+            try:
+                client = SpotifyClient(*credentials, market=os.getenv("SPOTIFY_MARKET", "US"))
+                playlist_token = None
+                if spotify_resource.resource_type == "playlist":
+                    playlist_token = await self.get_spotify_playlist_token(ctx, credentials)
+                    if not playlist_token:
+                        return [], 0
+                async with asyncio.timeout(getattr(self.bot, "ytdlp_timeout_seconds", YTDLP_TIMEOUT_SECONDS)):
+                    tracks = await asyncio.to_thread(client.get_tracks, spotify_resource, playlist_token)
+                selected_tracks = select_tracks(tracks, options) if options else tracks[:maximum_tracks]
+                resolved = []
+                skipped = 0
+                for index in range(0, len(selected_tracks), PLAYLIST_PROGRESS_BATCH_SIZE):
+                    batch = selected_tracks[index:index + PLAYLIST_PROGRESS_BATCH_SIZE]
+                    batch_resolved, batch_skipped = await self.resolve_spotify_tracks(batch)
+                    resolved.extend(batch_resolved)
+                    skipped += batch_skipped
+                    if progress_callback:
+                        await progress_callback(len(batch) + index, len(selected_tracks), len(resolved), skipped)
+                return [self.user_playlist_track_from_info(track) for track in resolved], skipped
+            except (SpotifyError, requests.RequestException, asyncio.TimeoutError):
+                await ctx.send(
+                    "Spotify could not load that source. Try again shortly.",
+                    ephemeral=bool(ctx.interaction),
+                )
+                return [], 0
+
+        try:
+            if self.is_youtube_playlist_url(source):
+                entries = await self.get_youtube_playlist_entries(source)
+                selected_entries = select_tracks([entry for entry in entries if entry], options) if options else entries[:maximum_tracks]
+                return [
+                    self.user_playlist_track_from_info(entry)
+                    for entry in selected_entries
+                    if entry
+                ], 0
+            is_url = urlparse(source).scheme in {"http", "https"}
+            info = await self.get_youtube_info(
+                source if is_url else f"ytsearch:{source}",
+                {"format": "bestaudio", "noplaylist": True},
+            )
+            if not is_url:
+                info = info["entries"][0]
+            return [self.user_playlist_track_from_info(info)], 0
+        except (asyncio.TimeoutError, youtube_dl.utils.DownloadError, IndexError, KeyError):
+            await ctx.send(
+                "YouTube could not resolve that source. Try another search or link.",
+                ephemeral=bool(ctx.interaction),
+            )
+            return [], 0
+
+    @staticmethod
+    def user_playlist_track_from_info(info):
+        thumbnails = info.get("thumbnails") or []
+        return (
+            info["title"],
+            info["url"],
+            thumbnails[0]["url"] if thumbnails else "",
+            info["webpage_url"],
+            info.get("duration") or 0,
+        )
+
+    async def save_user_playlist_source(self, ctx, name, source, options=None, interaction=None):
+        progress_message = await interaction.original_response() if interaction else None
+
+        async def respond(content=None, *, embed=None, view=None):
+            if progress_message:
+                await progress_message.edit(content=content, embed=embed, view=view)
+            elif interaction:
+                await interaction.followup.send(content, embed=embed, view=view, ephemeral=True)
+            else:
+                await ctx.send(content, embed=embed, view=view, ephemeral=bool(ctx.interaction))
+
+        async def update_progress(processed, total, resolved, skipped):
+            if not progress_message:
+                return
+            progress_bar = self.playlist_progress_bar(processed, total)
+            percentage = 100 if not total else (processed * 100) // total
+            content = (
+                "🎵 **Saving Spotify playlist**\n"
+                f"{progress_bar} `{percentage}%` ({processed}/{total})\n"
+                f"Matched: **{resolved}**"
+            )
+            if skipped:
+                content += f" | Skipped: **{skipped}**"
+            await progress_message.edit(content=content)
+
+        used_tracks = await asyncio.to_thread(self.user_playlist_store.track_count, ctx.author.id)
+        remaining_tracks = getattr(self.bot, "max_songs_per_user", 50) - used_tracks
+        if remaining_tracks <= 0:
+            await respond(
+                f"You can save up to {getattr(self.bot, 'max_songs_per_user', 50)} songs across your playlists.",
+            )
+            return
+        if progress_message:
+            await progress_message.edit(content="🎵 **Loading playlist tracks...**")
+        tracks, skipped = await self.resolve_user_playlist_source(
+            ctx,
+            source,
+            remaining_tracks,
+            options,
+            progress_callback=update_progress,
+        )
+        if not tracks:
+            return
+        try:
+            added = await asyncio.to_thread(
+                self.user_playlist_store.add_tracks,
+                ctx.author.id,
+                name,
+                tracks,
+                getattr(self.bot, "max_songs_per_user", 50),
+            )
+        except ValueError as error:
+            await respond(str(error))
+            return
+        if added > 1:
+            pages = []
+            page_tracks = []
+            page_lines = []
+            for index, (title, _, thumbnail_url, source_url, duration) in enumerate(tracks, start=1):
+                duration_str = await convert_duration_pretty(duration)
+                song_line = (
+                    f"**{index}.** [{escape_markdown(truncate_text(title, 180))}]({source_url})\n"
+                    f"{duration_str}"
+                )
+                if page_tracks and (len(page_tracks) == 10 or len("\n\n".join(page_lines)) + len(song_line) + 2 > 3800):
+                    pages.append((page_tracks, page_lines))
+                    page_tracks = []
+                    page_lines = []
+                page_tracks.append((title, thumbnail_url))
+                page_lines.append(song_line)
+            if page_tracks:
+                pages.append((page_tracks, page_lines))
+
+            embeds = []
+            for page_index, (page_tracks, song_lines) in enumerate(pages, start=1):
+                embed = discord.Embed(
+                    title=f"Added {added} songs to your playlist: {name}",
+                    description="\n\n".join(song_lines),
+                    color=discord.Color.blue(),
+                )
+                page_thumbnail = page_tracks[0][1]
+                if page_thumbnail:
+                    embed.set_thumbnail(url=page_thumbnail)
+                footer = f"Page {page_index} of {len(pages)}"
+                if skipped:
+                    footer += f" | Skipped {skipped} Spotify track{'s' if skipped != 1 else ''} with no YouTube match."
+                embed.set_footer(text=footer)
+                embeds.append(embed)
+            await respond(
+                embed=embeds[0],
+                view=SavedPlaylistResultPaginator(ctx.author.id, embeds),
+            )
+            return
+
+        title, stream_url, thumbnail_url, source_url, duration = tracks[0]
+        duration_str = await convert_duration_pretty(duration)
+        dominant_color = await get_dominant_color(thumbnail_url) if thumbnail_url else 0x3498db
+        embed = discord.Embed(
+            title=escape_markdown(truncate_text(title)),
+            url=source_url,
+            color=discord.Color(dominant_color),
+            description=f"*🎵 Added to your playlist **{escape_markdown(name)}***",
+        )
+        if thumbnail_url:
+            embed.set_thumbnail(url=thumbnail_url)
+        embed.set_author(name="Music Stream Link", url=stream_url)
+        embed.add_field(name="Duration", value=duration_str, inline=True)
+        if skipped:
+            embed.set_footer(text=f"Skipped {skipped} Spotify track{'s' if skipped != 1 else ''} with no YouTube match.")
+        await respond(embed=embed)
+
+    @commands.hybrid_group(name="playlist", aliases=["playlists"], invoke_without_command=True)
+    async def playlist(self, ctx):
+        """List your saved personal playlists."""
+        if not await self.ensure_user_playlist_store(ctx):
+            return
+        playlists = await asyncio.to_thread(self.user_playlist_store.list_playlists, ctx.author.id)
+        if not playlists:
+            await ctx.send("You have no saved playlists. Use `/playlist create` to make one.")
+            return
+        lines = [f"**{escape_markdown(name)}** - {count} song{'s' if count != 1 else ''}" for name, count in playlists]
+        await ctx.send(embed=discord.Embed(title=f"{ctx.author.display_name}'s Playlists", description="\n".join(lines)))
+
+    @playlist.command(name="create")
+    async def playlist_create(self, ctx, *, name: str):
+        """Create one of your personal playlists."""
+        if not await self.ensure_user_playlist_store(ctx):
+            return
+        try:
+            await asyncio.to_thread(
+                self.user_playlist_store.create_playlist,
+                ctx.author.id,
+                name,
+                getattr(self.bot, "max_playlists_per_user", 3),
+            )
+        except ValueError as error:
+            await ctx.send(str(error), ephemeral=bool(ctx.interaction))
+            return
+        await ctx.send(
+            f"Created playlist **{escape_markdown(name.strip())}**.",
+            ephemeral=bool(ctx.interaction),
+        )
+
+    @playlist.command(name="view")
+    async def playlist_view(self, ctx, member: discord.Member = None, *, name: str = None):
+        """View your playlists or a saved playlist belonging to another member."""
+        if not await self.ensure_user_playlist_store(ctx):
+            return
+        owner = member or ctx.author
+        playlists = await asyncio.to_thread(self.user_playlist_store.list_playlists, owner.id)
+        if not name:
+            if not playlists:
+                await ctx.send(f"{owner.display_name} has no saved playlists.")
+                return
+            lines = [f"**{escape_markdown(playlist_name)}** - {count} song{'s' if count != 1 else ''}" for playlist_name, count in playlists]
+            await ctx.send(embed=discord.Embed(title=f"{owner.display_name}'s Playlists", description="\n".join(lines)))
+            return
+        tracks = await asyncio.to_thread(self.user_playlist_store.get_playlist_tracks, owner.id, name)
+        exists = any(playlist_name.casefold() == name.casefold() for playlist_name, _ in playlists)
+        if not exists:
+            await ctx.send(f"{owner.display_name} does not have a playlist named **{escape_markdown(name)}**.")
+            return
+        if not tracks:
+            await ctx.send(f"**{escape_markdown(name)}** is empty.")
+            return
+        track_lines = [
+            f"**{index}.** {escape_markdown(truncate_text(track[0]))}\n"
+            f"{await convert_duration_pretty(track[4])} | [Link]({track[3]})"
+            for index, track in enumerate(tracks, start=1)
+        ]
+        embeds = [
+            discord.Embed(
+                title=f"{owner.display_name}'s Playlist: {name}",
+                description="\n\n".join(track_lines[index:index + 10]),
+            )
+            for index in range(0, len(track_lines), 10)
+        ]
+        await Paginator.CustomPaginator(timeout=120).start(ctx, pages=embeds)
+
+    @playlist.command(name="add")
+    async def playlist_add(self, ctx, name: str, *, source: str):
+        """Add a YouTube/Spotify song or playlist to one of your playlists."""
+        if not await self.ensure_user_playlist_store(ctx):
+            return
+        spotify_resource = parse_resource(source)
+        is_playlist = (
+            (spotify_resource and spotify_resource.resource_type == "playlist")
+            or self.is_youtube_playlist_url(source)
+        )
+        if is_playlist:
+            max_tracks = min(
+                self.get_guild_config(ctx.guild.id)["playlist_max_tracks"],
+                getattr(self.bot, "max_songs_per_user", 50),
+            )
+            await ctx.send(
+                "Configure which tracks to save to your playlist.",
+                view=SavedPlaylistLauncher(self, ctx, name, source, "Spotify" if spotify_resource else "YouTube", max_tracks),
+                ephemeral=bool(ctx.interaction),
+            )
+            return
+        async with ctx.typing(ephemeral=bool(ctx.interaction)):
+            await self.save_user_playlist_source(ctx, name, source)
+
+    @playlist.command(name="remove")
+    async def playlist_remove(self, ctx, name: str, position: int):
+        """Remove a song by its displayed position from one of your playlists."""
+        if not await self.ensure_user_playlist_store(ctx):
+            return
+        try:
+            title, stream_url, thumbnail_url, source_url, duration = await asyncio.to_thread(
+                self.user_playlist_store.remove_track,
+                ctx.author.id,
+                name,
+                position,
+            )
+        except ValueError as error:
+            await ctx.send(str(error), ephemeral=bool(ctx.interaction))
+            return
+        duration_str = await convert_duration_pretty(duration)
+        dominant_color = await get_dominant_color(thumbnail_url) if thumbnail_url else 0x3498db
+        embed = discord.Embed(
+            title=escape_markdown(truncate_text(title)),
+            url=source_url,
+            color=discord.Color(dominant_color),
+            description=f"*🗑️ Removed from your playlist **{escape_markdown(name)}***",
+        )
+        if thumbnail_url:
+            embed.set_thumbnail(url=thumbnail_url)
+        embed.set_author(name="Music Stream Link", url=stream_url)
+        embed.add_field(name="Duration", value=duration_str, inline=True)
+        embed.add_field(name="Previous Position", value=f"#{position}", inline=True)
+        await ctx.send(embed=embed, ephemeral=bool(ctx.interaction))
+
+    @playlist.command(name="move")
+    async def playlist_move(self, ctx, name: str, source_position: int, destination_position: int):
+        """Move a saved song to a new displayed position."""
+        if not await self.ensure_user_playlist_store(ctx):
+            return
+        try:
+            await asyncio.to_thread(
+                self.user_playlist_store.move_track,
+                ctx.author.id,
+                name,
+                source_position,
+                destination_position,
+            )
+        except ValueError as error:
+            await ctx.send(str(error), ephemeral=bool(ctx.interaction))
+            return
+        await ctx.send(
+            f"Moved song #{source_position} to position #{destination_position} in **{escape_markdown(name)}**.",
+            ephemeral=bool(ctx.interaction),
+        )
+
+    @playlist.command(name="delete")
+    async def playlist_delete(self, ctx, *, name: str):
+        """Delete one of your personal playlists and all of its songs."""
+        if not await self.ensure_user_playlist_store(ctx):
+            return
+        deleted = await asyncio.to_thread(self.user_playlist_store.delete_playlist, ctx.author.id, name)
+        if not deleted:
+            await ctx.send(
+                f"You do not have a playlist named **{escape_markdown(name)}**.",
+                ephemeral=bool(ctx.interaction),
+            )
+            return
+        await ctx.send(
+            f"Deleted playlist **{escape_markdown(name)}**.",
+            ephemeral=bool(ctx.interaction),
+        )
+
+    @playlist.command(name="play")
+    async def playlist_play(self, ctx, name: str, member: discord.Member = None):
+        """Configure and queue a saved playlist from you or another member."""
+        if not await self.ensure_user_playlist_store(ctx):
+            return
+        if not await self.ensure_user_in_voice(ctx):
+            return
+        owner = member or ctx.author
+        tracks = await asyncio.to_thread(self.user_playlist_store.get_playlist_tracks, owner.id, name)
+        if not tracks:
+            await ctx.send(f"{owner.display_name} has no songs in a playlist named **{escape_markdown(name)}**.")
+            return
+        maximum_tracks = min(self.get_guild_config(ctx.guild.id)["playlist_max_tracks"], len(tracks))
+        await ctx.send(
+            f"Configure which songs to queue from {owner.display_name}'s playlist **{escape_markdown(name)}**.",
+            view=UserPlaylistPlayLauncher(self, ctx, owner, name, maximum_tracks),
+        )
+
+    async def queue_user_playlist(self, ctx, owner, name, options, interaction):
+        tracks = await asyncio.to_thread(self.user_playlist_store.get_playlist_tracks, owner.id, name)
+        if not tracks:
+            await interaction.followup.send(
+                f"{owner.display_name}'s playlist **{escape_markdown(name)}** is empty or was deleted.",
+                ephemeral=True,
+            )
+            return
+        selected_tracks = select_tracks(tracks, options)
+        session = await self.get_session(ctx)
+        if session is None:
+            return
+        items = [
+            {
+                "title": title,
+                "url": stream_url,
+                "thumbnails": [{"url": thumbnail_url}] if thumbnail_url else [],
+                "webpage_url": source_url,
+                "duration": duration,
+            }
+            for title, stream_url, thumbnail_url, source_url, duration in selected_tracks
+        ]
+        queued = await self.queue_playlist_items(ctx, session, items)
+        await interaction.followup.send(
+            f"Queued {queued} song{'s' if queued != 1 else ''} from {owner.display_name}'s playlist **{escape_markdown(name)}**."
+            , ephemeral=True,
+        )
 
     @commands.hybrid_command(name='mostplayed')
     async def most_played(self, ctx):

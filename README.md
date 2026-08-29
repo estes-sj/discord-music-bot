@@ -115,6 +115,33 @@ Both slash-commands (`/`) and prefix commands (`.`) are supported. Prefix comman
 </details>
 
 <details>
+  <summary><code>/playlist</code> - Creates, manages, and plays personal saved playlists</summary>
+
+  Personal playlists belong to a Discord user rather than a server, so they are available anywhere that user can use the bot. Other members can view or queue a user's saved playlists, but only the owner can add, remove, move, or delete their songs. The default limits are three playlists and 50 saved songs across all of a user's playlists; bot operators can change them with `MAX_PLAYLISTS_PER_USER` and `MAX_SONGS_PER_USER`.
+
+  `playlist add` accepts a YouTube search, a YouTube video or playlist URL, or a Spotify track, album, or playlist URL. When adding a YouTube or Spotify playlist URL, it always opens the same requester-only track-selection form used by `/play`: choose a count, positions/ranges, and ordered or shuffled results before tracks are saved. The form permits at most `min(PLAYLIST_MAX_TRACKS, MAX_SONGS_PER_USER)` tracks. It saves resolved YouTube matches, so playing a saved playlist queues those tracks without resolving them again. `/playlist play` also opens a requester-only configuration control, letting you choose which saved positions to queue and whether to preserve saved order or shuffle them. Slash-command add and remove confirmations are private to the requester and include a song embed.
+
+  ```text
+  /playlist                                      # List your playlists
+  /playlist create Test Playlist
+  /playlist add "Test Playlist" zenzenzen
+  /playlist add "Test Playlist" https://www.youtube.com/playlist?list=PLAYLIST_ID
+  /playlist add "Test Playlist" https://open.spotify.com/playlist/PLAYLIST_ID
+  /playlist view                                 # List your playlists
+  /playlist view name:"Test Playlist"            # View songs in one of your playlists
+  /playlist view member:@Member                  # List another member's playlists
+  /playlist view member:@Member name:"Test Playlist"
+  /playlist remove "Test Playlist" 3
+  /playlist move "Test Playlist" 3 1
+  /playlist play "Test Playlist"
+  /playlist play "Test Playlist" @Member
+  /playlist delete "Test Playlist"
+  ```
+
+  Prefix commands use the same subcommands, for example `.playlist add "Test Playlist" zenzenzen`. Prefix responses are visible in the channel because Discord only supports private responses for slash commands.
+</details>
+
+<details>
   <summary><code>/pause</code> - Pauses the actively playing song</summary>
 
   <div class="image-container" align="center">
@@ -261,6 +288,7 @@ Both slash-commands (`/`) and prefix commands (`.`) are supported. Prefix comman
   Select an upcoming song, then select the song after which it should play. `.move` opens the private selector immediately; `.move` first posts a requester-only launcher button.
 </details>
 
+
 **Other Utility Commands**
 | Command                            | Description                                                                                   |
 |------------------------------------|-----------------------------------------------------------------------------------------------|
@@ -401,6 +429,8 @@ Once the bot is running, it will appear online in your Discord server and be abl
 | `PLAY_COOLDOWN_SECONDS` | `0` | `PLAY_COOLDOWN_SECONDS=10` | Per-user, per-server cooldown for `/play` and the prefix equivalent. `0` disables this cooldown. |
 | `SEARCH_COOLDOWN_SECONDS` | `1` | `SEARCH_COOLDOWN_SECONDS=5` | Per-user, per-server cooldown for `/search` and the prefix equivalent. `0` disables this cooldown. |
 | `PLAYLIST_IMPORT_CONCURRENCY_PER_GUILD` | `1` | `PLAYLIST_IMPORT_CONCURRENCY_PER_GUILD=2` | Maximum simultaneous playlist imports within one server. Keep `1` unless host capacity testing supports more. |
+| `MAX_PLAYLISTS_PER_USER` | `3` | `MAX_PLAYLISTS_PER_USER=5` | Maximum personal playlists a Discord user can create. |
+| `MAX_SONGS_PER_USER` | `50` | `MAX_SONGS_PER_USER=100` | Maximum tracks a Discord user can save across all of their personal playlists. |
 | `GUILD_CONFIG_DATABASE_PATH` | `/app/data/guild_config.db` | `GUILD_CONFIG_DATABASE_PATH=/app/data/guild_config.db` | SQLite database for per-server music configuration overrides. |
 | `AUTO_DISCONNECT_EMPTY_CHANNEL_ENABLED` | `true` | `AUTO_DISCONNECT_EMPTY_CHANNEL_ENABLED=false` | Whether the bot leaves when it is the only member left in its voice channel. |
 | `AUTO_DISCONNECT_EMPTY_CHANNEL_MINUTES` | `0` | `AUTO_DISCONNECT_EMPTY_CHANNEL_MINUTES=5` | Minutes to wait after the bot is alone before leaving. `0` leaves at the next check. |
@@ -408,6 +438,7 @@ Once the bot is running, it will appear online in your Discord server and be abl
 | `AUTO_DISCONNECT_INACTIVITY_MINUTES` | `10` | `AUTO_DISCONNECT_INACTIVITY_MINUTES=30` | Minutes without playback before the bot leaves. |
 | `YTDLP_UPDATE_SCHEDULE` | `0 4 * * *` | `YTDLP_UPDATE_SCHEDULE="0 8 * * *"` | Cron expression for yt-dlp updates. Output is written to `logs/yt-dlp-update.log`. |
 | `SONG_STATS_DATABASE_PATH` | `/app/data/song_stats.db` | `SONG_STATS_DATABASE_PATH=/app/data/song_stats.db` | SQLite database for persistent, guild-scoped song play counts and ratings. |
+| `USER_PLAYLIST_DATABASE_PATH` | `/app/data/user_playlists.db` | `USER_PLAYLIST_DATABASE_PATH=/app/data/user_playlists.db` | SQLite database for persistent personal playlists, shared by the user's bot account across servers. |
 | `SPOTIFY_CREDENTIAL_ENCRYPTION_KEY` | None | `SPOTIFY_CREDENTIAL_ENCRYPTION_KEY=...` | Fernet key used to encrypt per-guild Spotify Client IDs and Client Secrets at rest. Generate one with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Required for Spotify support. |
 | `SPOTIFY_DATABASE_PATH` | `/app/data/spotify.db` | `SPOTIFY_DATABASE_PATH=/app/data/spotify.db` | SQLite database containing encrypted guild credential records. Mount `/app/data` to retain it across container replacement. |
 | `PLAYLIST_MAX_TRACKS` | `20` | `PLAYLIST_MAX_TRACKS=50` | Maximum number of tracks accepted from an album or playlist import. |

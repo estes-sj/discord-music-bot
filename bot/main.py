@@ -16,6 +16,7 @@ from bot import __version__
 from bot.utils.guild_config_store import create_store_from_environment as create_guild_config_store
 from bot.utils.song_stats_store import create_store_from_environment as create_song_stats_store
 from bot.utils.spotify_store import SpotifyStoreError, create_store_from_environment
+from bot.utils.user_playlist_store import create_store_from_environment as create_user_playlist_store
 
 ######################### SETUP #########################
 load_dotenv()
@@ -101,6 +102,8 @@ client.search_cooldown_seconds = environment_nonnegative_integer("SEARCH_COOLDOW
 client.playlist_import_concurrency_per_guild = environment_nonnegative_integer(
     "PLAYLIST_IMPORT_CONCURRENCY_PER_GUILD", 1, minimum=1
 )
+client.max_playlists_per_user = environment_nonnegative_integer("MAX_PLAYLISTS_PER_USER", 3, minimum=1)
+client.max_songs_per_user = environment_nonnegative_integer("MAX_SONGS_PER_USER", 50, minimum=1)
 logging.getLogger("discord").info(
     "Safeguards configured: yt-dlp timeout=%ss, play cooldown=%ss, search cooldown=%ss, playlist imports/guild=%s",
     client.ytdlp_timeout_seconds,
@@ -127,6 +130,11 @@ try:
 except (OSError, sqlite3.Error) as error:
     client.song_stats_store = None
     logging.getLogger("discord").warning("Song statistics are unavailable: %s", error)
+try:
+    client.user_playlist_store = create_user_playlist_store()
+except (OSError, sqlite3.Error) as error:
+    client.user_playlist_store = None
+    logging.getLogger("discord").warning("User playlists are unavailable: %s", error)
 try:
     client.spotify_store = create_store_from_environment()
 except SpotifyStoreError as error:
