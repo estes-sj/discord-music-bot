@@ -1375,11 +1375,16 @@ class Music(commands.Cog):
         # Split the queue into chunks of 10 songs per page
         chunk_size = 10
         chunks = [queue_list[i:i + chunk_size] for i in range(0, len(queue_list), chunk_size)]
+        current_track_index = session.q.queued_track_index(session.q.current_music)
+        current_track_position = current_track_index + 1 if current_track_index is not None else "Unknown"
 
         embeds = []
 
         for chunk in chunks:
-            embed = discord.Embed(title=f"🎧 Current Queue (Playing #{session.q.size()})", color=discord.Color(dominant_color))
+            embed = discord.Embed(
+                title=f"🎧 Current Queue (Playing #{current_track_position})",
+                color=discord.Color(dominant_color),
+            )
 
             # Join the chunk into a single string for the embed
             embed.description = "\n\n".join(chunk)  # Two newlines for better separation
