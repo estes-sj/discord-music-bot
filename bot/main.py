@@ -110,6 +110,28 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 #########################################################
 
+async def sync_guild_commands(guild):
+    client.tree.copy_global_to(guild=guild)
+    try:
+        commands_synced = await client.tree.sync(guild=guild)
+        logger.info("Synced %s application commands to guild %s", len(commands_synced), guild.id)
+    except discord.HTTPException as error:
+        logger.warning("Could not sync application commands to guild %s: %s", guild.id, error)
+
+
+async def clear_global_commands():
+    global_commands = list(client.tree.get_commands())
+    client.tree.clear_commands(guild=None)
+    try:
+        commands_synced = await client.tree.sync()
+        logger.info("Cleared %s global application commands", len(commands_synced))
+    except discord.HTTPException as error:
+        logger.warning("Could not clear global application commands: %s", error)
+    finally:
+        for command in global_commands:
+            client.tree.add_command(command)
+
+
 @client.event
 async def on_ready():
     """
@@ -120,9 +142,17 @@ async def on_ready():
     if not client.get_cog("ServerAssistant"):
         await client.add_cog(ServerAssistant(client))
     if not getattr(client, "commands_synced", False):
-        await client.tree.sync()
+        for guild in client.guilds:
+            await sync_guild_commands(guild)
+        await clear_global_commands()
         client.commands_synced = True
     logger.info('We have successfully logged in as {0.user} (Bot version: v{1})'.format(client, __version__))
+
+
+@client.event
+async def on_guild_join(guild):
+    await sync_guild_commands(guild)
+
 
 # Runs bot's loop.
 client.run(TOKEN, log_handler=None)
