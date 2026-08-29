@@ -23,8 +23,10 @@ See [Usage](#usage) for more information and examples on specific commands and f
 
 ## Usage
 
+Both slash-commands (`/`) and prefix commands (`.`) are supported. Prefix commands are available for servers that have disabled slash commands, but at least one command mode must be enabled. The default command prefix is `.` and can be changed per server with `.config` or in the `.env`. The bot's help message lists all available commands.
+
 <details>
-  <summary><code>.search &lt;song name&gt;</code> - Searches YouTube results</summary>
+  <summary><code>/search &lt;song name&gt;</code> - Searches YouTube results</summary>
 
   Searches YouTube for the top 20 results and allows the user to select which one to add to the queue.
   
@@ -34,7 +36,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>.play &lt;song name, YouTube URL, or YouTube playlist URL&gt;</code> - Plays a song or adds it to queue</summary>
+  <summary><code>/play &lt;song name, YouTube URL, or YouTube playlist URL&gt;</code> - Plays a song or adds it to queue</summary>
 
   ```text
   .play Neverender by Tame Impala
@@ -71,7 +73,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>.play &lt;Spotify song URL or playlist URL&gt;</code> - Imports Spotify metadata as YouTube matches</summary>
+  <summary><code>/play &lt;Spotify song URL or playlist URL&gt;</code> - Imports Spotify metadata as YouTube matches</summary>
 
   Spotify links do not stream Spotify audio directly. The bot reads Spotify metadata using credentials configured for this server, finds equivalent YouTube audio, and queues the successful matches.
 
@@ -95,13 +97,13 @@ See [Usage](#usage) for more information and examples on specific commands and f
   Spotify currently returns playlist items only for playlists owned by the authorizing account or where that account is a collaborator. For a public playlist owned by someone else, save or copy it into the authorizing Spotify account first. Playlists with no options open a requester-only configuration modal. Position selections use the same 1-based, inclusive `POSITION[,POSITION|START-END...]` format and count behavior described above.
 
   ```text
-  .play https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC
-  .play https://open.spotify.com/album/1ATL5GLyefJaxhQzSPVrLX --count 8 --ordered
-  .play https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M --count 10 --shuffle
-  .play https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M --range 20-40 --count 15 --ordered
-  .play https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M --range 1-3,5,7,9-10 --count 10 --ordered
-  .spotifyclear
-  .spotifystatus
+  /play https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC
+  /play https://open.spotify.com/album/1ATL5GLyefJaxhQzSPVrLX --count 8 --ordered
+  /play https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M --count 10 --shuffle
+  /play https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M --range 20-40 --count 15 --ordered
+  /play https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M --range 1-3,5,7,9-10 --count 10 --ordered
+  /spotifyclear
+  /spotifystatus
   ```
 
   The bot queues matches it finds and reports how many selected tracks could not be resolved. Spotify credentials, access tokens, and secrets are never sent to a server channel or logged.
@@ -113,7 +115,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>.pause</code> - Pauses the actively playing song</summary>
+  <summary><code>/pause</code> - Pauses the actively playing song</summary>
 
   <div class="image-container" align="center">
       <img src="docs/pause.png" alt="Pause Example" width="50%"/>
@@ -121,7 +123,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>.resume</code> - Resumes the actively paused song</summary>
+  <summary><code>/resume</code> - Resumes the actively paused song</summary>
 
   <div class="image-container" align="center">
       <img src="docs/resume.png" alt="Resume Example" width="50%"/>
@@ -129,7 +131,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>.skip</code> - Skips to the next song in the queue</summary>
+  <summary><code>/skip</code> - Skips to the next song in the queue</summary>
 
   - Alias: `.next`
 
@@ -141,33 +143,33 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>.seek &lt;position&gt;</code> - Jumps within the current song</summary>
+  <summary><code>/seek &lt;position&gt;</code> - Jumps within the current song</summary>
 
   Use seconds, `MM:SS`, or `HH:MM:SS` for an absolute position. Prefix the value with `+` or `-` to move relative to the current position.
 
   ```text
-  .seek +15       # Forward 15 seconds
-  .seek +00:15    # Forward 15 seconds
-  .seek 00:42     # Jump to 42 seconds from the beginning
-  .seek -15       # Back 15 seconds
-  .seek -00:15    # Back 15 seconds
+  /seek +15       # Forward 15 seconds
+  /seek +00:15    # Forward 15 seconds
+  /seek 00:42     # Jump to 42 seconds from the beginning
+  /seek -15       # Back 15 seconds
+  /seek -00:15    # Back 15 seconds
   ```
 </details>
 
 <details>
-  <summary><code>.restart</code> - Restarts the current song</summary>
+  <summary><code>/restart</code> - Restarts the current song</summary>
 
   Starts the current song again from the beginning without changing the queue.
 </details>
 
 <details>
-  <summary><code>.shuffle</code> - Shuffles upcoming songs</summary>
+  <summary><code>/shuffle</code> - Shuffles upcoming songs</summary>
 
   Keeps the current song in place and randomizes the remaining queued songs.
 </details>
 
 <details>
-  <summary><code>.stop</code> - Stops playing audio and clears the queue</summary>
+  <summary><code>/stop</code> - Stops playing audio and clears the queue</summary>
 
   - Alias: `.reset`
 
@@ -177,7 +179,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>.here</code> - Moves the bot into the user's voice channel</summary>
+  <summary><code>/here</code> - Moves the bot into the user's voice channel</summary>
 
   - Alias: `.join`
 
@@ -189,7 +191,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>.leave</code> - Disconnects the bot from the voice channel and clears the queue</summary>
+  <summary><code>/leave</code> - Disconnects the bot from the voice channel and clears the queue</summary>
 
   <div class="image-container" align="center">
       <img src="docs/leave.png" alt="Leave Example" width="50%"/>
@@ -197,7 +199,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>.clearqueue</code> - Clears the queue, except the currently playing song</summary>
+  <summary><code>/clearqueue</code> - Clears the queue, except the currently playing song</summary>
 
   - Alias: `.clearQueue`, `.cq`, `.clear_next`, `.clearnext`, `.clearNext`, `.cn`
 
@@ -207,7 +209,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>.playingnow</code> - Shows the current song</summary>
+  <summary><code>/playingnow</code> - Shows the current song</summary>
     
   - Alias: `.playingNow`, `.playing`, `.music`, `.nowplaying`, `.nowPlaying`, `.now`, `.musicnow`, `.musicNow`
     
@@ -224,15 +226,15 @@ See [Usage](#usage) for more information and examples on specific commands and f
   Song play counts are recorded when playback begins, including loop replays. All statistics are scoped to the current server and persist in `data/song_stats.db`.
 
   ```text
-  .mostplayed       # Top 20 songs by playback starts
-  .mostliked        # Top 20 songs by likes
-  .mostdisliked     # Top 20 songs by dislikes
-  .myliked          # Your 20 most recently liked songs in this server
+  /mostplayed       # Top 20 songs by playback starts
+  /mostliked        # Top 20 songs by likes
+  /mostdisliked     # Top 20 songs by dislikes
+  /myliked          # Your 20 most recently liked songs in this server
   ```
 </details>
 
 <details>
-  <summary><code>.queue</code> - Displays the current queue of songs</summary>
+  <summary><code>/queue</code> - Displays the current queue of songs</summary>
 
   - Alias: `.q`
 
@@ -244,7 +246,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>.remove</code> - Removes a selected upcoming song from the queue</summary>
+  <summary><code>/remove</code> - Removes a selected upcoming song from the queue</summary>
 
   - Prefix command aliases: `.remove`, `.rm`
 
@@ -252,7 +254,7 @@ See [Usage](#usage) for more information and examples on specific commands and f
 </details>
 
 <details>
-  <summary><code>.move</code> - Moves a selected upcoming song in the queue</summary>
+  <summary><code>/move</code> - Moves a selected upcoming song in the queue</summary>
 
   - Prefix command: `.move`
 
@@ -262,10 +264,11 @@ See [Usage](#usage) for more information and examples on specific commands and f
 **Other Utility Commands**
 | Command                            | Description                                                                                   |
 |------------------------------------|-----------------------------------------------------------------------------------------------|
-| `.help`                             | Shows the help message with all available commands.                                           |
-| `.ping`                             | Test command to check for basic bot responsiveness.                                           |
-| `.time`                             | Displays the current time.                                                                    |
-| `.up`                               | Reports container ID and uptime.                                                              |
+| `/help`                             | Shows the help message with all available commands.                                           |
+| `/config`                           | Displays the server's current configuration and allows administrators to change it.           |
+| `/ping`                             | Test command to check for basic bot responsiveness.                                           |
+| `/time`                             | Displays the current time.                                                                    |
+| `/up`                               | Reports container ID and uptime.                                                              |
 
 ### Interactions
 This bot also includes Discord interactions for quick pause/play, skip, queue management, and like/dislike actions. The below image shows the interaction buttons that appear in the now-playing message. From left-to-right, the buttons are: ⏭️ Skip, ▶️ Play / ⏸️ Pause, 🔁 Loop, 🔀 Shuffle, ⏹️ Stop, 👍 Like, 👎 Dislike. The Like and Dislike buttons are only available while the song is actively playing. If the interactions expire when they should still be active (e.g. hitting it returns "the bot did not respond on time"), you can use `.now`/`.playingNow` to get refreshed interactions.
@@ -390,6 +393,8 @@ Once the bot is running, it will appear online in your Discord server and be abl
 | --- | --- | --- | --- |
 | `DISCORD_TOKEN` | None | `DISCORD_TOKEN=your-bot-token` | Bot token from the Discord Developer Portal. |
 | `COMMAND_PREFIX` | `.` | `COMMAND_PREFIX=!` | Prefix used for bot commands and the displayed help activity. |
+| `SLASH_COMMANDS_ENABLED` | `true` | `SLASH_COMMANDS_ENABLED=false` | Makes slash commands available to guilds. A value of `false` cannot be overridden by guild configuration. |
+| `PREFIX_COMMANDS_ENABLED` | `true` | `PREFIX_COMMANDS_ENABLED=false` | Makes prefix commands available to guilds. A value of `false` cannot be overridden by guild configuration. At least one command mode must be enabled. |
 | `LOG_MAX_BYTES` | `8388608` | `LOG_MAX_BYTES=16777216` | Maximum size, in bytes, of each `logs/discord.log` file before rotation. |
 | `LOG_BACKUP_COUNT` | `5` | `LOG_BACKUP_COUNT=10` | Number of rotated `discord.log` files to retain. |
 | `GUILD_CONFIG_DATABASE_PATH` | `/app/data/guild_config.db` | `GUILD_CONFIG_DATABASE_PATH=/app/data/guild_config.db` | SQLite database for per-server music configuration overrides. |
@@ -407,7 +412,7 @@ Once the bot is running, it will appear online in your Discord server and be abl
 | `SPOTIFY_MARKET` | `US` | `SPOTIFY_MARKET=CA` | Two-letter country code used to determine Spotify catalog availability for the Client Credentials flow. Set this to the bot's intended region. |
 | `SPOTIFY_REDIRECT_URI` | None | `SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/spotify-callback` | Exact callback URL registered in the Spotify Developer Dashboard for one-time playlist authorization. Spotify permits HTTP only for an explicit loopback IP, not `localhost` or a LAN/server IP. The authorizing user copies the redirected URL to the bot's DM. Required for playlists. |
 
-Server administrators can run `.config` or `/config` to set a server-specific command prefix, auto-disconnect policies, and playlist defaults. These overrides are stored in `GUILD_CONFIG_DATABASE_PATH`; environment values remain the defaults for servers without an override.
+Server administrators can run `.config` or `/config` to set a server-specific command prefix, command modes, auto-disconnect policies, and playlist defaults. Guilds can disable either prefix or slash commands, but must keep one mode enabled. `SLASH_COMMANDS_ENABLED=false` or `PREFIX_COMMANDS_ENABLED=false` is an operator-level restriction and prevents guild administrators from re-enabling that mode. These overrides are stored in `GUILD_CONFIG_DATABASE_PATH`; environment values remain the defaults for servers without an override.
 
 ## Troubleshooting
 

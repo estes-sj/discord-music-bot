@@ -16,24 +16,16 @@ class ServerAssistant(commands.Cog):
         self.start_time = t.time()  # Store the bot's start time
         self.version = __version__
 
-    @commands.command()
+    @commands.hybrid_command()
     async def time(self, ctx):
-        """
-        Current time
-
-        Usage: ?time
-        """
+        """Show the current server time."""
         now = datetime.now()
-        await ctx.channel.send(f'The current time is {now}')
+        await ctx.send(f'The current time is {now}')
         return
 
-    @commands.command()
+    @commands.hybrid_command()
     async def up(self, ctx):
-        """
-        Report container hostname and uptime
-
-        Usage: ?up
-        """
+        """Show the container hostname, bot version, and uptime."""
         # Record the end time
         end_time = t.time()
         # Calculate the elapsed time
@@ -48,18 +40,14 @@ class ServerAssistant(commands.Cog):
         except Exception:
             container_id = "Unknown"
 
-        await ctx.channel.send(f"Discord Music Bot [`{container_id}`] | Version [`v{self.version}`] | Uptime: [`{elapsed_time_formatted}`]")
+        await ctx.send(f"Discord Music Bot [`{container_id}`] | Version [`v{self.version}`] | Uptime: [`{elapsed_time_formatted}`]")
         return
 
-    @commands.command()
+    @commands.hybrid_command()
     async def ping(self, ctx):
-        """
-        Test command to check for basic bot responsiveness.
-
-        Usage: ?ping
-        """
-        logger.info(f"Pong")
-        await ctx.channel.send(f'Pong')
+        """Check whether the bot is responsive."""
+        logger.info("Pong")
+        await ctx.send("Pong")
         return
 
 def setup(bot):

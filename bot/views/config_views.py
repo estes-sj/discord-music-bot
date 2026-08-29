@@ -46,6 +46,7 @@ class GuildConfigLauncher(discord.ui.View):
 
 class GuildConfigModal(discord.ui.Modal, title="Music configuration"):
     command_prefix = discord.ui.TextInput(label="Command prefix", max_length=10)
+    command_modes = discord.ui.TextInput(label="Commands: slash enabled, prefix enabled", placeholder="true, true", max_length=20)
     empty_channel = discord.ui.TextInput(label="Empty channel: enabled, minutes", placeholder="true, 0", max_length=20)
     inactivity = discord.ui.TextInput(label="Inactivity: enabled, minutes", placeholder="true, 10", max_length=20)
     playlist = discord.ui.TextInput(label="Playlist: maximum, default, shuffle", placeholder="20, 20, false", max_length=30)
@@ -56,6 +57,10 @@ class GuildConfigModal(discord.ui.Modal, title="Music configuration"):
         self.guild_id = guild_id
         config = music_cog.get_guild_config(guild_id)
         self.command_prefix.default = config["command_prefix"]
+        self.command_modes.default = (
+            f"{str(config['slash_commands_enabled']).lower()}, "
+            f"{str(config['prefix_commands_enabled']).lower()}"
+        )
         self.empty_channel.default = f"{str(config['empty_channel_enabled']).lower()}, {config['empty_channel_minutes']}"
         self.inactivity.default = f"{str(config['inactivity_enabled']).lower()}, {config['inactivity_minutes']}"
         self.playlist.default = (
@@ -69,6 +74,18 @@ class GuildConfigModal(discord.ui.Modal, title="Music configuration"):
             await interaction.response.send_message("Command prefix cannot be empty.", ephemeral=True)
             return
         try:
+            command_mode_values = [value.strip() for value in self.command_modes.value.split(",")]
+            if len(command_mode_values) != 2:
+                raise ValueError("Commands must use slash enabled,prefix enabled")
+            slash_commands_enabled = parse_boolean(command_mode_values[0])
+            prefix_commands_enabled = parse_boolean(command_mode_values[1])
+            defaults = self.music_cog.bot.guild_config_defaults
+            if slash_commands_enabled and not defaults["slash_commands_enabled"]:
+                raise ValueError("Slash commands are disabled by the bot operator")
+            if prefix_commands_enabled and not defaults["prefix_commands_enabled"]:
+                raise ValueError("Prefix commands are disabled by the bot operator")
+            if not slash_commands_enabled and not prefix_commands_enabled:
+                raise ValueError("At least slash commands or prefix commands must remain enabled")
             empty_enabled, empty_minutes = parse_policy(self.empty_channel.value, "Empty channel")
             inactivity_enabled, inactivity_minutes = parse_policy(self.inactivity.value, "Inactivity")
             playlist_values = [value.strip() for value in self.playlist.value.split(",")]
@@ -87,6 +104,8 @@ class GuildConfigModal(discord.ui.Modal, title="Music configuration"):
 
         config = {
             "command_prefix": prefix,
+            "slash_commands_enabled": slash_commands_enabled,
+            "prefix_commands_enabled": prefix_commands_enabled,
             "empty_channel_enabled": empty_enabled,
             "empty_channel_minutes": empty_minutes,
             "inactivity_enabled": inactivity_enabled,

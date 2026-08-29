@@ -19,6 +19,8 @@ class GuildConfigStore:
                 CREATE TABLE IF NOT EXISTS guild_config (
                     guild_id INTEGER PRIMARY KEY,
                     command_prefix TEXT NOT NULL,
+                    slash_commands_enabled INTEGER NOT NULL DEFAULT 1 CHECK (slash_commands_enabled IN (0, 1)),
+                    prefix_commands_enabled INTEGER NOT NULL DEFAULT 1 CHECK (prefix_commands_enabled IN (0, 1)),
                     empty_channel_enabled INTEGER NOT NULL CHECK (empty_channel_enabled IN (0, 1)),
                     empty_channel_minutes INTEGER NOT NULL CHECK (empty_channel_minutes >= 0),
                     inactivity_enabled INTEGER NOT NULL CHECK (inactivity_enabled IN (0, 1)),
@@ -31,42 +33,66 @@ class GuildConfigStore:
                 )
                 """
             )
+            columns = {
+                row[1]
+                for row in connection.execute("PRAGMA table_info(guild_config)")
+            }
+            if "slash_commands_enabled" not in columns:
+                connection.execute(
+                    "ALTER TABLE guild_config ADD COLUMN slash_commands_enabled INTEGER NOT NULL DEFAULT 1 "
+                    "CHECK (slash_commands_enabled IN (0, 1))"
+                )
+            if "prefix_commands_enabled" not in columns:
+                connection.execute(
+                    "ALTER TABLE guild_config ADD COLUMN prefix_commands_enabled INTEGER NOT NULL DEFAULT 1 "
+                    "CHECK (prefix_commands_enabled IN (0, 1))"
+                )
 
     def get(self, guild_id, defaults):
         with self.connect() as connection:
             row = connection.execute(
                 """
-                SELECT command_prefix, empty_channel_enabled, empty_channel_minutes,
-                    inactivity_enabled, inactivity_minutes, playlist_max_tracks,
-                    playlist_default_tracks, playlist_default_shuffle
+                SELECT command_prefix, slash_commands_enabled, prefix_commands_enabled,
+                    empty_channel_enabled, empty_channel_minutes, inactivity_enabled,
+                    inactivity_minutes, playlist_max_tracks, playlist_default_tracks,
+                    playlist_default_shuffle
                 FROM guild_config WHERE guild_id = ?
                 """,
                 (guild_id,),
             ).fetchone()
         if not row:
             return defaults.copy()
-        return {
+        config = {
             "command_prefix": row[0],
-            "empty_channel_enabled": bool(row[1]),
-            "empty_channel_minutes": row[2],
-            "inactivity_enabled": bool(row[3]),
-            "inactivity_minutes": row[4],
-            "playlist_max_tracks": row[5],
-            "playlist_default_tracks": row[6],
-            "playlist_default_shuffle": bool(row[7]),
+            "slash_commands_enabled": bool(row[1]) and defaults["slash_commands_enabled"],
+            "prefix_commands_enabled": bool(row[2]) and defaults["prefix_commands_enabled"],
+            "empty_channel_enabled": bool(row[3]),
+            "empty_channel_minutes": row[4],
+            "inactivity_enabled": bool(row[5]),
+            "inactivity_minutes": row[6],
+            "playlist_max_tracks": row[7],
+            "playlist_default_tracks": row[8],
+            "playlist_default_shuffle": bool(row[9]),
         }
+        if not config["slash_commands_enabled"] and not config["prefix_commands_enabled"]:
+            config["slash_commands_enabled"] = defaults["slash_commands_enabled"]
+            config["prefix_commands_enabled"] = not config["slash_commands_enabled"]
+        return config
 
     def save(self, guild_id, config, updated_by):
         with self.connect() as connection:
             connection.execute(
                 """
                 INSERT INTO guild_config (
-                    guild_id, command_prefix, empty_channel_enabled, empty_channel_minutes,
+                    guild_id, command_prefix, slash_commands_enabled, prefix_commands_enabled,
+                    empty_channel_enabled, empty_channel_minutes,
                     inactivity_enabled, inactivity_minutes, playlist_max_tracks,
                     playlist_default_tracks, playlist_default_shuffle, updated_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(guild_id) DO UPDATE SET
                     command_prefix = excluded.command_prefix,
+                    slash_commands_enabled = excluded.slash_commands_enabled,
+                    prefix_commands_enabled = excluded.prefix_commands_enabled,
                     empty_channel_enabled = excluded.empty_channel_enabled,
                     empty_channel_minutes = excluded.empty_channel_minutes,
                     inactivity_enabled = excluded.inactivity_enabled,
@@ -80,6 +106,8 @@ class GuildConfigStore:
                 (
                     guild_id,
                     config["command_prefix"],
+                    config["slash_commands_enabled"],
+                    config["prefix_commands_enabled"],
                     config["empty_channel_enabled"],
                     config["empty_channel_minutes"],
                     config["inactivity_enabled"],

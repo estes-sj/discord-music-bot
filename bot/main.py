@@ -24,6 +24,15 @@ COMMAND_PREFIX = os.getenv("COMMAND_PREFIX", ".")
 LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", str(8 * 1024 * 1024)))
 LOG_BACKUP_COUNT = int(os.getenv("LOG_BACKUP_COUNT", "5"))
 
+
+def environment_boolean(name, default):
+    value = os.getenv(name, str(default)).strip().lower()
+    if value in {"true", "yes", "1", "on"}:
+        return True
+    if value in {"false", "no", "0", "off"}:
+        return False
+    raise ValueError(f"{name} must be true or false")
+
 # Bot intents configuration
 intents = discord.Intents(
     messages=True,
@@ -40,21 +49,34 @@ def command_prefix_for_message(bot, message):
     return bot.guild_config_store.get(message.guild.id, bot.guild_config_defaults)["command_prefix"]
 
 
+class ConfigurableBot(commands.Bot):
+    async def process_commands(self, message):
+        if message.author.bot:
+            return
+        if not self.guild_config_defaults["prefix_commands_enabled"]:
+            return
+        if message.guild and self.guild_config_store:
+            config = self.guild_config_store.get(message.guild.id, self.guild_config_defaults)
+            if not config["prefix_commands_enabled"]:
+                return
+        await super().process_commands(message)
+
+
 # Initialize bot with a command prefix
-activity = discord.Activity(type=discord.ActivityType.listening, name=f"{COMMAND_PREFIX}help")
-# Parameters are written in the doc string already
-help_command = commands.DefaultHelpCommand(show_parameter_descriptions=False)
-client = commands.Bot(
+activity = discord.Activity(type=discord.ActivityType.listening, name="/help")
+client = ConfigurableBot(
     command_prefix=command_prefix_for_message,
     intents=intents,
     activity=activity,
-    help_command=help_command
+    help_command=None,
     )
 
 # Load bot token from environment variables
 TOKEN = os.getenv("DISCORD_TOKEN")
 client.guild_config_defaults = {
     "command_prefix": COMMAND_PREFIX,
+    "slash_commands_enabled": environment_boolean("SLASH_COMMANDS_ENABLED", True),
+    "prefix_commands_enabled": environment_boolean("PREFIX_COMMANDS_ENABLED", True),
     "empty_channel_enabled": os.getenv("AUTO_DISCONNECT_EMPTY_CHANNEL_ENABLED", "true").lower() == "true",
     "empty_channel_minutes": max(0, int(os.getenv("AUTO_DISCONNECT_EMPTY_CHANNEL_MINUTES", "0"))),
     "inactivity_enabled": os.getenv("AUTO_DISCONNECT_INACTIVITY_ENABLED", "true").lower() == "true",
@@ -63,6 +85,11 @@ client.guild_config_defaults = {
     "playlist_default_tracks": max(1, int(os.getenv("PLAYLIST_DEFAULT_TRACKS", "20"))),
     "playlist_default_shuffle": os.getenv("PLAYLIST_DEFAULT_SHUFFLE", "false").lower() == "true",
 }
+if not (
+    client.guild_config_defaults["slash_commands_enabled"]
+    or client.guild_config_defaults["prefix_commands_enabled"]
+):
+    raise ValueError("At least one of SLASH_COMMANDS_ENABLED or PREFIX_COMMANDS_ENABLED must be true")
 client.guild_config_defaults["playlist_default_tracks"] = min(
     client.guild_config_defaults["playlist_default_tracks"],
     client.guild_config_defaults["playlist_max_tracks"],
@@ -130,6 +157,25 @@ async def clear_global_commands():
     finally:
         for command in global_commands:
             client.tree.add_command(command)
+
+
+async def application_commands_enabled(interaction):
+    if not interaction.guild:
+        return client.guild_config_defaults["slash_commands_enabled"]
+    config = client.guild_config_store.get(
+        interaction.guild.id,
+        client.guild_config_defaults,
+    ) if client.guild_config_store else client.guild_config_defaults
+    if config["slash_commands_enabled"]:
+        return True
+    await interaction.response.send_message(
+        "Slash commands are disabled for this server. Use the configured prefix commands instead.",
+        ephemeral=True,
+    )
+    return False
+
+
+client.tree.interaction_check = application_commands_enabled
 
 
 @client.event

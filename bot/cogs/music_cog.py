@@ -88,6 +88,10 @@ class Music(commands.Cog):
     def get_session_for_guild(self, guild_id):
         return next((session for session in sessions if session.guild == guild_id), None)
 
+    async def add_reaction(self, ctx, emoji):
+        if not ctx.interaction:
+            await ctx.message.add_reaction(emoji)
+
     async def get_session(self, ctx):
         """
         Retrieves the session (or creates if none) for the current guild and voice channel.
@@ -113,7 +117,7 @@ class Music(commands.Cog):
                     return session
                 else:
                     await ctx.send("⚠️ *There is already an active session in this server. Multiple sessions in different channels are not supported.*")
-                    await ctx.message.add_reaction("😵")
+                    await self.add_reaction(ctx, "😵")
                     return None  # Prevents creating a new session
         
         session = Utilities.Session(ctx.guild.id, ctx.author.voice.channel.id)
@@ -448,7 +452,7 @@ class Music(commands.Cog):
         """
         if not ctx.author.voice:
             await ctx.send("*You are not connected to a voice channel.*")
-            await ctx.message.add_reaction("❌")
+            await self.add_reaction(ctx, "❌")
             return False
         return True
 
@@ -462,7 +466,7 @@ class Music(commands.Cog):
         voice = ctx.voice_client
         if not voice or not voice.is_connected():
             await ctx.send("*The bot is not connected to a voice channel.*")
-            await ctx.message.add_reaction("🙅‍♂️")
+            await self.add_reaction(ctx, "🙅‍♂️")
             return False
         return True
 
@@ -972,7 +976,7 @@ class Music(commands.Cog):
                 summary += f"; skipped {skipped} track{'s' if skipped != 1 else ''} with no YouTube match"
             await ctx.send(summary + ". Use `.q` to view the queue.")
 
-    @commands.command(name='spotifyclear')
+    @commands.hybrid_command(name='spotifyclear')
     async def spotify_clear(self, ctx):
         """Delete this server's stored Spotify application credentials."""
         if not await self.ensure_spotify_voice_access(ctx):
@@ -984,7 +988,7 @@ class Music(commands.Cog):
         deleted = await asyncio.to_thread(store.clear_credentials, ctx.guild.id)
         await ctx.send("Spotify credentials cleared for this server." if deleted else "No Spotify credentials are configured for this server.")
 
-    @commands.command(name='spotifystatus')
+    @commands.hybrid_command(name='spotifystatus')
     async def spotify_status(self, ctx):
         """Show whether this server has Spotify application credentials configured."""
         if not await self.ensure_spotify_voice_access(ctx):
@@ -1017,6 +1021,86 @@ class Music(commands.Cog):
             view=GuildConfigLauncher(self, ctx.guild.id, ctx.author.id),
         )
 
+    @commands.hybrid_command(name="help")
+    async def help(self, ctx, command_name: str = None):
+        """Show available commands or detailed help for one command."""
+        prefix = self.get_guild_config(ctx.guild.id)["command_prefix"]
+        if command_name:
+            command = self.bot.get_command(command_name.lower())
+            if not command:
+                await ctx.send(f"No command named `{command_name}` exists.", ephemeral=bool(ctx.interaction))
+                return
+            embed = discord.Embed(title=f"Help: {command.name}", color=discord.Color.blue())
+            embed.description = command.help or "No description is available for this command."
+            prefix_usage = f"{prefix}{command.name} {command.signature}".strip()
+            embed.add_field(name="Prefix usage", value=f"`{prefix_usage}`", inline=False)
+            embed.add_field(name="Slash usage", value=f"`/{command.name}`", inline=False)
+            if command.aliases:
+                embed.add_field(name="Prefix aliases", value=", ".join(f"`{prefix}{alias}`" for alias in command.aliases), inline=False)
+            await ctx.send(embed=embed, ephemeral=bool(ctx.interaction))
+            return
+
+        embed = discord.Embed(title="Command reference", color=discord.Color.blue())
+        embed.description = (
+            f"Use `{prefix}<command>` or `/command`. Run `{prefix}help <command>` or `/help` with a command "
+            "for focused usage and aliases."
+        )
+        embed.add_field(
+            name="Playback",
+            value=(
+                f"`{prefix}play <query or URL>` - Play a YouTube search, video, playlist, or Spotify link.\n"
+                f"`{prefix}pause` / `{prefix}resume` - Pause or resume current playback.\n"
+                f"`{prefix}skip` - Advance to the next queued track.\n"
+                f"`{prefix}seek <seconds|MM:SS|HH:MM:SS>` - Seek within the current track.\n"
+                f"`{prefix}restart` - Restart the current track from the beginning.\n"
+                f"`{prefix}shuffle` - Shuffle upcoming tracks while preserving the current one.\n"
+                f"`{prefix}stop` - Stop playback and clear the queue.\n"
+                f"`{prefix}leave` / `{prefix}here` - Disconnect or move the bot to your voice channel."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Queue",
+            value=(
+                f"`{prefix}queue` - Show the queue at the page containing the current track.\n"
+                f"`{prefix}playingnow` - Show the track currently playing.\n"
+                f"`{prefix}remove` - Choose an upcoming track to remove.\n"
+                f"`{prefix}move` - Reorder an upcoming track.\n"
+                f"`{prefix}clearqueue` - Remove all upcoming tracks and keep the current one."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Discovery and statistics",
+            value=(
+                f"`{prefix}search <query>` - Search YouTube and select a result.\n"
+                f"`{prefix}mostplayed` - Show this server's most played tracks.\n"
+                f"`{prefix}mostliked` / `{prefix}mostdisliked` - Show this server's rated tracks.\n"
+                f"`{prefix}myliked` - Show tracks you liked in this server."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Spotify and server settings",
+            value=(
+                f"`{prefix}config` - Open the server music settings form (Manage Server required).\n"
+                f"`{prefix}spotifystatus` - Show this server's Spotify configuration status.\n"
+                f"`{prefix}spotifyclear` - Remove this server's saved Spotify credentials.\n"
+                "Playlist imports support `--count`, `--range`, `--ordered`, and `--shuffle`."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Server assistant",
+            value=(
+                f"`{prefix}time` - Show the server time.\n"
+                f"`{prefix}up` - Show bot version, container hostname, and uptime.\n"
+                f"`{prefix}ping` - Check bot responsiveness."
+            ),
+            inline=False,
+        )
+        await ctx.send(embed=embed, ephemeral=bool(ctx.interaction))
+
     async def send_song_ranking(self, ctx, title, rows, empty_message):
         if not rows:
             await ctx.send(empty_message)
@@ -1041,22 +1125,22 @@ class Music(commands.Cog):
         )
         await self.send_song_ranking(ctx, title, rows, empty_message)
 
-    @commands.command(name='mostplayed')
+    @commands.hybrid_command(name='mostplayed')
     async def most_played(self, ctx):
         """Show this server's 20 most played songs."""
         await self.get_song_ranking(ctx, "top_played", "Most Played Songs", "No songs have been played in this server yet.")
 
-    @commands.command(name='mostliked')
+    @commands.hybrid_command(name='mostliked')
     async def most_liked(self, ctx):
         """Show this server's 20 most liked songs."""
         await self.get_song_ranking(ctx, "top_liked", "Most Liked Songs", "No songs have been liked in this server yet.")
 
-    @commands.command(name='mostdisliked')
+    @commands.hybrid_command(name='mostdisliked')
     async def most_disliked(self, ctx):
         """Show this server's 20 most disliked songs."""
         await self.get_song_ranking(ctx, "top_disliked", "Most Disliked Songs", "No songs have been disliked in this server yet.")
 
-    @commands.command(name='myliked')
+    @commands.hybrid_command(name='myliked')
     async def my_liked(self, ctx):
         """Show your 20 most recently liked songs in this server."""
         await self.get_song_ranking(
@@ -1067,21 +1151,14 @@ class Music(commands.Cog):
             ctx.author.id,
         )
 
-    @commands.command(name='play')
-    async def play(self, ctx, *, query):
-        """Play a search result, YouTube URL, or Spotify track, album, or playlist.
-
-        :param ctx: discord.ext.commands.Context
-        :param query: Search text, a YouTube URL, or a Spotify URL.
-
-        Spotify album and playlist imports support --count N, --range POSITION[,POSITION|START-END...],
-        --ordered, and --shuffle. Playlists without options open a configuration prompt.
-        """
+    @commands.hybrid_command(name='play')
+    async def play(self, ctx, *, query: str):
+        """Play a search result, YouTube URL, or Spotify track, album, or playlist."""
         try:
             voice_channel = ctx.author.voice.channel
         except AttributeError:
             await ctx.send("*You are not connected to a voice channel.*")
-            await ctx.message.add_reaction("❌")
+            await self.add_reaction(ctx, "❌")
             return
         
         spotify_value, _, spotify_arguments = query.strip().partition(" ")
@@ -1188,7 +1265,7 @@ class Music(commands.Cog):
                     view=QueuedTrackControls(self, ctx.guild.id, queued_track),
                 )
                 session.queued_track_messages[id(queued_track)] = (queued_track, queued_message)
-                await ctx.message.add_reaction("✅")
+                await self.add_reaction(ctx, "✅")
             else:
                 embed.description = (
                     f"*▶️ Now playing in <#{session.channel}>*"
@@ -1223,12 +1300,10 @@ class Music(commands.Cog):
                         )
                     except Exception as error:
                         logger.warning("Guild %s: failed to record song play: %s", ctx.guild.id, error)
-                await ctx.message.add_reaction("▶️")
-    @commands.command(name='skip', aliases=['next'])
+                await self.add_reaction(ctx, "▶️")
+    @commands.hybrid_command(name='skip', aliases=['next'])
     async def skip(self, ctx):
-        """
-        Skips the current song and plays the next one in the queue if available. The skipped song is not removed from the queue.
-        """
+        """Skip to the next queued song without removing the current song."""
         if not await self.ensure_user_in_voice(ctx):
             return
         if not await self.ensure_bot_in_voice(ctx):
@@ -1240,21 +1315,21 @@ class Music(commands.Cog):
 
         if not session.q.theres_next():
             await ctx.send("*There are no more songs in the queue.*")
-            await ctx.message.add_reaction("🤷‍♂️")
+            await self.add_reaction(ctx, "🤷‍♂️")
             return
         
         voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
         if voice.is_playing():
             session.q.skip_requested = True
             voice.stop()
-            await ctx.message.add_reaction("⏭️")
+            await self.add_reaction(ctx, "⏭️")
 
-    @commands.command(name='seek')
-    async def seek(self, ctx, *, position):
+    @commands.hybrid_command(name='seek')
+    async def seek(self, ctx, *, position: str):
         """Seek within the current song."""
         await self.seek_current_track(ctx, position)
 
-    @commands.command(name='restart')
+    @commands.hybrid_command(name='restart')
     async def restart(self, ctx):
         """Restart the current song from the beginning."""
         if not await self.ensure_user_in_voice(ctx) or not await self.ensure_bot_in_voice(ctx):
@@ -1271,7 +1346,7 @@ class Music(commands.Cog):
         voice.stop()
         await ctx.send("Restarted the current song.")
 
-    @commands.command(name='shuffle')
+    @commands.hybrid_command(name='shuffle')
     async def shuffle_queue(self, ctx):
         """Shuffle upcoming tracks while keeping the current track in place."""
         if not await self.ensure_user_in_voice(ctx):
@@ -1284,13 +1359,13 @@ class Music(commands.Cog):
             return
         if not session.q.theres_next():
             await ctx.send("*There are no upcoming songs to shuffle.*")
-            await ctx.message.add_reaction("🤷‍♂️")
+            await self.add_reaction(ctx, "🤷‍♂️")
             return
 
         session.q.shuffle_upcoming()
         await ctx.send("Upcoming songs shuffled.")
 
-    @commands.command(name='leave')
+    @commands.hybrid_command(name='leave')
     async def leave(self, ctx):
         """
         Disconnects the bot from the voice channel.
@@ -1310,12 +1385,12 @@ class Music(commands.Cog):
             if session in sessions:
                 sessions.remove(session)
                 
-            await ctx.message.add_reaction("👋")
+            await self.add_reaction(ctx, "👋")
         else:
             await ctx.send("*The bot is not connected to a voice channel.*")
-            await ctx.message.add_reaction("🙅‍♂️")
+            await self.add_reaction(ctx, "🙅‍♂️")
 
-    @commands.command(name='pause')
+    @commands.hybrid_command(name='pause')
     async def pause(self, ctx):
         """
         Pauses the current song if playing.
@@ -1333,12 +1408,12 @@ class Music(commands.Cog):
         if voice.is_playing():
             voice.pause()
             session.q.pause_playback()
-            await ctx.message.add_reaction("⏸️")
+            await self.add_reaction(ctx, "⏸️")
         else:
             await ctx.send("*There is no audio currently playing.*")
-            await ctx.message.add_reaction("🤔")
+            await self.add_reaction(ctx, "🤔")
 
-    @commands.command(name='resume')
+    @commands.hybrid_command(name='resume')
     async def resume(self, ctx):
         """
         Resumes the currently paused song.
@@ -1356,12 +1431,12 @@ class Music(commands.Cog):
         if voice.is_paused():
             voice.resume()
             session.q.resume_playback()
-            await ctx.message.add_reaction("▶️")
+            await self.add_reaction(ctx, "▶️")
         else:
             await ctx.send("*The music is not paused.* 🔊🆙")
-            await ctx.message.add_reaction("❓")
+            await self.add_reaction(ctx, "❓")
 
-    @commands.command(name='stop', aliases=['reset'])
+    @commands.hybrid_command(name='stop', aliases=['reset'])
     async def stop(self, ctx):
         """
         Stops playing audio and clears the queue.
@@ -1381,12 +1456,12 @@ class Music(commands.Cog):
             await self.retire_queued_track_controls_except(session)
             voice.stop()
             session.q.clear_queue()
-            await ctx.message.add_reaction("⏹️")
+            await self.add_reaction(ctx, "⏹️")
         else:
             await ctx.send("*There is no music playing.*")
-            await ctx.message.add_reaction("🦗")
+            await self.add_reaction(ctx, "🦗")
 
-    @commands.command(name='queue', aliases=['q'])
+    @commands.hybrid_command(name='queue', aliases=['q'])
     async def queue(self, ctx):
         """
         Displays the current queue of songs in groups of 10.
@@ -1400,7 +1475,7 @@ class Music(commands.Cog):
 
         if session.q.is_empty():
             await ctx.send("*The queue is currently empty.*")
-            await ctx.message.add_reaction("✅")
+            await self.add_reaction(ctx, "✅")
             return
 
         # Get the dominant color of the first song's thumbnail
@@ -1442,7 +1517,7 @@ class Music(commands.Cog):
 
         await Paginator.CustomPaginator(timeout=120, InitialPage=initial_page).start(ctx, pages=embeds)
 
-        await ctx.message.add_reaction("📜")
+        await self.add_reaction(ctx, "📜")
 
     @commands.hybrid_command(name='remove', aliases=['rm'])
     async def remove(self, ctx):
@@ -1460,7 +1535,7 @@ class Music(commands.Cog):
         tracks = session.q.queue[current_index + 1:] if current_index is not None else []
         if not tracks:
             await ctx.send("*There are no upcoming songs to remove.*")
-            await ctx.message.add_reaction("🤷‍♂️")
+            await self.add_reaction(ctx, "🤷‍♂️")
             return
 
         if ctx.interaction:
@@ -1497,7 +1572,7 @@ class Music(commands.Cog):
         tracks = session.q.queue[current_index + 1:] if current_index is not None else []
         if not tracks:
             await ctx.send("*There are no upcoming songs to move.*")
-            await ctx.message.add_reaction("🤷‍♂️")
+            await self.add_reaction(ctx, "🤷‍♂️")
             return
 
         if ctx.interaction:
@@ -1513,7 +1588,7 @@ class Music(commands.Cog):
             view=QueueMoveLauncher(self, ctx.guild.id, ctx.author.id),
         )
 
-    @commands.command(name='clearqueue', aliases=['clearnext', 'clearNext', 'cn', 'clear_queue', 'cq', 'clear_next', 'clearQueue'])
+    @commands.hybrid_command(name='clearqueue', aliases=['clearnext', 'clearNext', 'cn', 'clear_queue', 'cq', 'clear_next', 'clearQueue'])
     async def clearqueue(self, ctx):
         """
         Clears the current queue of songs, except the currently playing song.
@@ -1529,27 +1604,27 @@ class Music(commands.Cog):
 
         if session.q.is_empty():
             await ctx.send("*The queue is already empty.*")
-            await ctx.message.add_reaction("✅")
+            await self.add_reaction(ctx, "✅")
             return
         
         if session.q.size() == 1:
             await ctx.send("*No other songs in queue. Use 'stop' to clear the currently playing song.*")
-            await ctx.message.add_reaction("✅")
+            await self.add_reaction(ctx, "✅")
             return
 
         await self.retire_queued_track_controls_except(session, session.q.current_music)
         session.q.clear_queue_except_current()
         await ctx.send("*The queue has been cleared.*")
-        await ctx.message.add_reaction("🧹")
+        await self.add_reaction(ctx, "🧹")
 
-    @commands.command(name='here', aliases=['join'])
+    @commands.hybrid_command(name='here', aliases=['join'])
     async def here(self, ctx):
         """
         Moves the bot to the user's current voice channel and updates the session.
         """
         if not ctx.author.voice:
             await ctx.send("*You are not connected to a voice channel.*")
-            await ctx.message.add_reaction("❌")
+            await self.add_reaction(ctx, "❌")
             return
 
         voice_channel = ctx.author.voice.channel
@@ -1562,7 +1637,7 @@ class Music(commands.Cog):
         if voice and voice.is_connected():
             if voice.channel.id == voice_channel.id:
                 await ctx.send(f"*I'm already in <#{voice_channel.id}>* 📢")
-                await ctx.message.add_reaction("🤔")
+                await self.add_reaction(ctx, "🤔")
                 return
             await voice.move_to(voice_channel)
             await ctx.send(f"*Moved to:* <#{voice_channel.id}>")
@@ -1575,9 +1650,9 @@ class Music(commands.Cog):
 
         # Update the session's channel reference
         session.channel = voice_channel.id
-        await ctx.message.add_reaction("🔄")
+        await self.add_reaction(ctx, "🔄")
 
-    @commands.command(name='playingnow', aliases=['nowPlaying', 'music', 'now', 'musicnow', 'musicNow', 'playing', 'nowplaying', 'playingNow'])
+    @commands.hybrid_command(name='playingnow', aliases=['nowPlaying', 'music', 'now', 'musicnow', 'musicNow', 'playing', 'nowplaying', 'playingNow'])
     async def playingnow(self, ctx):
         """
         Gets the current song playing.
@@ -1591,14 +1666,14 @@ class Music(commands.Cog):
 
         if session.q.is_empty():
             await ctx.send("*Nothing is in queue.*")
-            await ctx.message.add_reaction("🚫")
+            await self.add_reaction(ctx, "🚫")
             return
         
         current_music = session.q.get_current_music()
 
         if not current_music or current_music.title == '':
             await ctx.send("*Nothing is playing.*")
-            await ctx.message.add_reaction("🚫")
+            await self.add_reaction(ctx, "🚫")
             return
         
         # Convert duration to HH:MM:SS format
@@ -1630,16 +1705,11 @@ class Music(commands.Cog):
             now_playing_message,
             current_music.ytube,
         )
-        await ctx.message.add_reaction("🎶")
+        await self.add_reaction(ctx, "🎶")
 
-    @commands.command(name="search")
+    @commands.hybrid_command(name="search")
     async def search(self, ctx, *, query: str):
-        """
-        Searches YouTube for the top 20 results and allows the user to select one to add to the queue.
-
-        :param ctx: discord.ext.commands.Context - The context in which the command was called.
-        :param query: str - The search query to find relevant YouTube results.
-        """
+        """Search YouTube and choose a result to add to the queue."""
         embeds = []
         results = []
         async with ctx.typing():  # Shows "Bot is typing..." while processing
@@ -1695,20 +1765,20 @@ class Music(commands.Cog):
 
         await ctx.send(content="", view=YouTubeSearchDropdown(ctx, self.bot, results))
 
-        await ctx.message.add_reaction("🔍")
+        await self.add_reaction(ctx, "🔍")
 
     @play.error
     async def on_command_error(self, ctx, error):
         if isinstance(error, commands.MissingRequiredArgument):
             await ctx.send("*❌ Please provide a search query or YouTube URL when using the `play` command. Usage: `.play <query>`*")
-            await ctx.message.add_reaction("❌")
+            await self.add_reaction(ctx, "❌")
             return
 
     @search.error
     async def on_command_error(self, ctx, error):
         if isinstance(error, commands.MissingRequiredArgument):
             await ctx.send("*❌ Please provide a search query or YouTube URL when using the `search` command. Usage:`.search <query>`*")
-            await ctx.message.add_reaction("❌")
+            await self.add_reaction(ctx, "❌")
             return
 
 def setup(bot):
