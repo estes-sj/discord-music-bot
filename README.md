@@ -128,9 +128,9 @@ Both slash-commands (`/`) and prefix commands (`.`) are supported. Prefix comman
   /playlist add "Test Playlist" https://www.youtube.com/playlist?list=PLAYLIST_ID
   /playlist add "Test Playlist" https://open.spotify.com/playlist/PLAYLIST_ID
   /playlist view                                 # List your playlists
-  /playlist view name:"Test Playlist"            # View songs in one of your playlists
-  /playlist view member:@Member                  # List another member's playlists
-  /playlist view member:@Member name:"Test Playlist"
+  /playlist view Test Playlist                   # View songs in one of your playlists
+  /playlist view @Member                         # List another member's playlists
+  /playlist view @Member Test Playlist           # View another member's playlist
   /playlist remove "Test Playlist" 3
   /playlist move "Test Playlist" 3 1
   /playlist play "Test Playlist"
