@@ -9,3 +9,6 @@ __pycache__/
 # Environment files
 *.env
 secrets
+
+# Other
+misc/

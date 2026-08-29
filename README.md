@@ -437,7 +437,7 @@ Discord voice channels also impose a bitrate limit and transmit audio with Opus.
 Seeking restarts the stream at the selected position; it may briefly buffer, but it does not increase or intentionally reduce the selected source quality.
 
 ## Bugs
-Will address bugs as I identify them through my own personal use of the bot. Feel free to open an issue, create a PR, or reach out to me for suggestions.
+Please use the [bug report template](.github/ISSUE_TEMPLATE/bug_report.yml) for reproducible problems and the [closed beta feedback template](.github/ISSUE_TEMPLATE/beta_feedback.yml) for usability feedback. Review [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Do not report vulnerabilities or expose secrets in a public issue; follow [SECURITY.md](SECURITY.md) instead.
 
 ## License
 
