@@ -13,6 +13,7 @@ from discord.ext import commands
 # Local imports
 from bot.cogs import Music, ServerAssistant
 from bot import __version__
+from bot.utils.guild_config_store import create_store_from_environment as create_guild_config_store
 from bot.utils.song_stats_store import create_store_from_environment as create_song_stats_store
 from bot.utils.spotify_store import SpotifyStoreError, create_store_from_environment
 
@@ -33,12 +34,18 @@ intents = discord.Intents(
     voice_states=True
 )
 
+def command_prefix_for_message(bot, message):
+    if not message.guild or not getattr(bot, "guild_config_store", None):
+        return COMMAND_PREFIX
+    return bot.guild_config_store.get(message.guild.id, bot.guild_config_defaults)["command_prefix"]
+
+
 # Initialize bot with a command prefix
 activity = discord.Activity(type=discord.ActivityType.listening, name=f"{COMMAND_PREFIX}help")
 # Parameters are written in the doc string already
 help_command = commands.DefaultHelpCommand(show_parameter_descriptions=False)
 client = commands.Bot(
-    command_prefix=COMMAND_PREFIX,
+    command_prefix=command_prefix_for_message,
     intents=intents,
     activity=activity,
     help_command=help_command
@@ -46,6 +53,25 @@ client = commands.Bot(
 
 # Load bot token from environment variables
 TOKEN = os.getenv("DISCORD_TOKEN")
+client.guild_config_defaults = {
+    "command_prefix": COMMAND_PREFIX,
+    "empty_channel_enabled": os.getenv("AUTO_DISCONNECT_EMPTY_CHANNEL_ENABLED", "true").lower() == "true",
+    "empty_channel_minutes": max(0, int(os.getenv("AUTO_DISCONNECT_EMPTY_CHANNEL_MINUTES", "0"))),
+    "inactivity_enabled": os.getenv("AUTO_DISCONNECT_INACTIVITY_ENABLED", "true").lower() == "true",
+    "inactivity_minutes": max(0, int(os.getenv("AUTO_DISCONNECT_INACTIVITY_MINUTES", "10"))),
+    "playlist_max_tracks": max(1, int(os.getenv("PLAYLIST_MAX_TRACKS", "20"))),
+    "playlist_default_tracks": max(1, int(os.getenv("PLAYLIST_DEFAULT_TRACKS", "20"))),
+    "playlist_default_shuffle": os.getenv("PLAYLIST_DEFAULT_SHUFFLE", "false").lower() == "true",
+}
+client.guild_config_defaults["playlist_default_tracks"] = min(
+    client.guild_config_defaults["playlist_default_tracks"],
+    client.guild_config_defaults["playlist_max_tracks"],
+)
+try:
+    client.guild_config_store = create_guild_config_store()
+except (OSError, sqlite3.Error) as error:
+    client.guild_config_store = None
+    logging.getLogger("discord").warning("Guild configuration is unavailable: %s", error)
 try:
     client.song_stats_store = create_song_stats_store()
 except (OSError, sqlite3.Error) as error:

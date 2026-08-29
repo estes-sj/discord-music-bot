@@ -77,11 +77,12 @@ class SpotifyPlaylistModal(discord.ui.Modal, title="Spotify playlist import"):
         self.music_cog = music_cog
         self.ctx = ctx
         self.resource = resource
-        max_tracks = music_cog.spotify_max_tracks
+        self.config = music_cog.get_guild_config(ctx.guild.id)
+        max_tracks = self.config["playlist_max_tracks"]
         self.count.placeholder = f"1-{max_tracks}"
-        self.count.default = str(music_cog.spotify_default_tracks)
+        self.count.default = str(self.config["playlist_default_tracks"])
         self.count.max_length = len(str(max_tracks))
-        self.ordering.default = "shuffle" if music_cog.spotify_default_shuffle else "ordered"
+        self.ordering.default = "shuffle" if self.config["playlist_default_shuffle"] else "ordered"
 
     async def on_submit(self, interaction):
         arguments = f"--count {self.count.value} --{self.ordering.value.strip().lower()}"
@@ -90,9 +91,9 @@ class SpotifyPlaylistModal(discord.ui.Modal, title="Spotify playlist import"):
         try:
             options = parse_playlist_options(
                 arguments,
-                self.music_cog.spotify_max_tracks,
-                self.music_cog.spotify_default_tracks,
-                self.music_cog.spotify_default_shuffle,
+                self.config["playlist_max_tracks"],
+                self.config["playlist_default_tracks"],
+                self.config["playlist_default_shuffle"],
             )
         except (SpotifyError, ValueError) as error:
             await interaction.response.send_message(f"Invalid playlist configuration: {error}", ephemeral=True)
@@ -137,9 +138,9 @@ class YouTubePlaylistModal(SpotifyPlaylistModal, title="YouTube playlist import"
         try:
             options = parse_playlist_options(
                 arguments,
-                self.music_cog.spotify_max_tracks,
-                self.music_cog.spotify_default_tracks,
-                self.music_cog.spotify_default_shuffle,
+                self.config["playlist_max_tracks"],
+                self.config["playlist_default_tracks"],
+                self.config["playlist_default_shuffle"],
             )
         except (SpotifyError, ValueError) as error:
             await interaction.response.send_message(f"Invalid playlist configuration: {error}", ephemeral=True)

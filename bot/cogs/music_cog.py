@@ -20,6 +20,7 @@ from PIL import Image
 import bot.utils.custom_paginator as Paginator
 import bot.utils.music_utilities as Utilities
 from bot.views.playback_views import MusicControls
+from bot.views.config_views import GuildConfigLauncher, GuildConfigModal
 from bot.views.playlist_views import (
     PlaylistImportCancelView,
     SpotifyPlaylistLauncher,
@@ -66,39 +67,23 @@ class Music(commands.Cog):
         self.spotify_import_locks = {}
         self.spotify_store = getattr(self.bot, "spotify_store", None)
         self.song_stats_store = getattr(self.bot, "song_stats_store", None)
+        self.guild_config_store = getattr(self.bot, "guild_config_store", None)
         if self.spotify_store is None:
             logger.warning("Spotify support is not configured for this bot.")
         if self.song_stats_store is None:
             logger.warning("Song statistics are not configured for this bot.")
 
 
-    @property
-    def spotify_max_tracks(self):
-        return int(os.getenv("PLAYLIST_MAX_TRACKS", "20"))
+    def get_guild_config(self, guild_id):
+        defaults = self.bot.guild_config_defaults
+        if not self.guild_config_store:
+            return defaults.copy()
+        return self.guild_config_store.get(guild_id, defaults)
 
-    @property
-    def spotify_default_tracks(self):
-        return min(int(os.getenv("PLAYLIST_DEFAULT_TRACKS", "20")), self.spotify_max_tracks)
-
-    @property
-    def spotify_default_shuffle(self):
-        return os.getenv("PLAYLIST_DEFAULT_SHUFFLE", "false").lower() == "true"
-
-    @property
-    def disconnect_empty_channel_enabled(self):
-        return os.getenv("AUTO_DISCONNECT_EMPTY_CHANNEL_ENABLED", "true").lower() == "true"
-
-    @property
-    def disconnect_empty_channel_minutes(self):
-        return max(0, int(os.getenv("AUTO_DISCONNECT_EMPTY_CHANNEL_MINUTES", "0")))
-
-    @property
-    def disconnect_inactivity_enabled(self):
-        return os.getenv("AUTO_DISCONNECT_INACTIVITY_ENABLED", "true").lower() == "true"
-
-    @property
-    def disconnect_inactivity_minutes(self):
-        return max(0, int(os.getenv("AUTO_DISCONNECT_INACTIVITY_MINUTES", "10")))
+    def save_guild_config(self, guild_id, config, updated_by):
+        if not self.guild_config_store:
+            raise RuntimeError("Guild configuration storage is unavailable")
+        self.guild_config_store.save(guild_id, config, updated_by)
 
     def get_session_for_guild(self, guild_id):
         return next((session for session in sessions if session.guild == guild_id), None)
@@ -399,8 +384,6 @@ class Music(commands.Cog):
         Automatically disconnects according to the configured empty-channel and
         playback-inactivity policies.
         """
-        empty_channel_duration = self.disconnect_empty_channel_minutes * 60
-        inactivity_duration = self.disconnect_inactivity_minutes * 60
         check_interval = 15
         empty_channel_elapsed = 0
         inactivity_elapsed = 0
@@ -412,8 +395,12 @@ class Music(commands.Cog):
             if not voice.is_connected():
                 break
 
+            config = self.get_guild_config(ctx.guild.id)
+            empty_channel_duration = config["empty_channel_minutes"] * 60
+            inactivity_duration = config["inactivity_minutes"] * 60
+
             # Check if voice channel is empty
-            if self.disconnect_empty_channel_enabled and len(voice.channel.members) == 1:
+            if config["empty_channel_enabled"] and len(voice.channel.members) == 1:
                 empty_channel_elapsed += check_interval
                 if empty_channel_elapsed >= empty_channel_duration:
                     await ctx.send("👋 *No one is in the channel. Disconnecting...*")
@@ -432,11 +419,11 @@ class Music(commands.Cog):
                 empty_channel_elapsed = 0
 
             # Check if nothing is playing
-            if self.disconnect_inactivity_enabled and not voice.is_playing() and not voice.is_paused():
+            if config["inactivity_enabled"] and not voice.is_playing() and not voice.is_paused():
                 inactivity_elapsed += check_interval
                 if inactivity_elapsed >= inactivity_duration:
                     await ctx.send(
-                        f"🔇 *No activity detected for {self.disconnect_inactivity_minutes} minutes. Disconnecting...*"
+                        f"🔇 *No activity detected for {config['inactivity_minutes']} minutes. Disconnecting...*"
                     )
                     await voice.disconnect()
 
@@ -1015,6 +1002,21 @@ class Music(commands.Cog):
         else:
             await ctx.send("Spotify is not configured for this server.")
 
+    @commands.hybrid_command(name="config")
+    @commands.has_guild_permissions(manage_guild=True)
+    async def config(self, ctx):
+        """Open this server's music configuration form."""
+        if not self.guild_config_store:
+            await ctx.send("Guild configuration storage is currently unavailable.")
+            return
+        if ctx.interaction:
+            await ctx.interaction.response.send_modal(GuildConfigModal(self, ctx.guild.id))
+            return
+        await ctx.send(
+            "Open the server music configuration form.",
+            view=GuildConfigLauncher(self, ctx.guild.id, ctx.author.id),
+        )
+
     async def send_song_ranking(self, ctx, title, rows, empty_message):
         if not rows:
             await ctx.send(empty_message)
@@ -1086,11 +1088,12 @@ class Music(commands.Cog):
         spotify_resource = parse_resource(spotify_value)
         if spotify_resource:
             try:
+                config = self.get_guild_config(ctx.guild.id)
                 options = parse_playlist_options(
                     spotify_arguments,
-                    self.spotify_max_tracks,
-                    self.spotify_default_tracks,
-                    self.spotify_default_shuffle,
+                    config["playlist_max_tracks"],
+                    config["playlist_default_tracks"],
+                    config["playlist_default_shuffle"],
                 )
             except (SpotifyError, ValueError) as error:
                 await ctx.send(f"Invalid Spotify playlist options: {error}")
@@ -1111,11 +1114,12 @@ class Music(commands.Cog):
 
         if self.is_youtube_playlist_url(spotify_value):
             try:
+                config = self.get_guild_config(ctx.guild.id)
                 options = parse_playlist_options(
                     spotify_arguments,
-                    self.spotify_max_tracks,
-                    self.spotify_default_tracks,
-                    self.spotify_default_shuffle,
+                    config["playlist_max_tracks"],
+                    config["playlist_default_tracks"],
+                    config["playlist_default_shuffle"],
                 )
             except (SpotifyError, ValueError) as error:
                 await ctx.send(f"Invalid YouTube playlist options: {error}")
