@@ -431,6 +431,9 @@ Once the bot is running, it will appear online in your Discord server and be abl
 | `PLAYLIST_IMPORT_CONCURRENCY_PER_GUILD` | `1` | `PLAYLIST_IMPORT_CONCURRENCY_PER_GUILD=2` | Maximum simultaneous playlist imports within one server. Keep `1` unless host capacity testing supports more. |
 | `NOW_PLAYING_CONTROLS_MINIMUM_TIMEOUT_SECONDS` | `600` | `NOW_PLAYING_CONTROLS_MINIMUM_TIMEOUT_SECONDS=900` | Minimum lifetime for currently-playing controls. Known-duration tracks use the greater of this value or their remaining duration plus `NOW_PLAYING_CONTROLS_TIMEOUT_BUFFER_SECONDS`. |
 | `NOW_PLAYING_CONTROLS_TIMEOUT_BUFFER_SECONDS` | `60` | `NOW_PLAYING_CONTROLS_TIMEOUT_BUFFER_SECONDS=120` | Extra time added to a known track's remaining duration when setting its currently-playing control lifetime. |
+| `STREAM_URL_CACHE_SAFETY_MARGIN_SECONDS` | `300` | `STREAM_URL_CACHE_SAFETY_MARGIN_SECONDS=600` | Refresh a cached signed YouTube stream URL when it has this many seconds or less remaining. The cache is memory-only and is cleared when the bot restarts. |
+| `STREAM_URL_CACHE_MAX_ENTRIES` | `200` | `STREAM_URL_CACHE_MAX_ENTRIES=500` | Maximum signed YouTube stream URLs held in the bot's in-memory cache. |
+| `SAVED_PLAYLIST_RESOLUTION_CONCURRENCY` | `3` | `SAVED_PLAYLIST_RESOLUTION_CONCURRENCY=5` | Maximum simultaneous YouTube resolutions when queueing a saved playlist. |
 | `MAX_PLAYLISTS_PER_USER` | `3` | `MAX_PLAYLISTS_PER_USER=5` | Maximum personal playlists a Discord user can create. |
 | `MAX_SONGS_PER_USER` | `50` | `MAX_SONGS_PER_USER=100` | Maximum tracks a Discord user can save across all of their personal playlists. |
 | `GUILD_CONFIG_DATABASE_PATH` | `/app/data/guild_config.db` | `GUILD_CONFIG_DATABASE_PATH=/app/data/guild_config.db` | SQLite database for per-server music configuration overrides. |

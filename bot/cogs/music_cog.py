@@ -75,6 +75,7 @@ class Music(commands.Cog):
         self.active_playlist_imports = {}
         self.active_expensive_commands = set()
         self.command_cooldowns = {}
+        self.stream_url_cache = {}
         self.spotify_store = getattr(self.bot, "spotify_store", None)
         self.song_stats_store = getattr(self.bot, "song_stats_store", None)
         self.user_playlist_store = getattr(self.bot, "user_playlist_store", None)
@@ -724,6 +725,40 @@ class Music(commands.Cog):
         async with asyncio.timeout(getattr(self.bot, "ytdlp_timeout_seconds", YTDLP_TIMEOUT_SECONDS)):
             return await asyncio.to_thread(extract)
 
+    def cached_stream_info(self, source_url):
+        cached = self.stream_url_cache.get(source_url)
+        if not cached:
+            return None
+        if cached["expires_at"] <= time.time() + self.bot.stream_url_cache_safety_margin_seconds:
+            self.stream_url_cache.pop(source_url, None)
+            return None
+        self.stream_url_cache.pop(source_url)
+        self.stream_url_cache[source_url] = cached
+        return cached["info"]
+
+    def cache_stream_info(self, info):
+        source_url = info.get("webpage_url")
+        stream_url = info.get("url")
+        expires = parse_qs(urlparse(stream_url or "").query).get("expire", [None])[0]
+        try:
+            expires_at = float(expires)
+        except (TypeError, ValueError):
+            return
+        if not source_url or expires_at <= time.time() + self.bot.stream_url_cache_safety_margin_seconds:
+            return
+        self.stream_url_cache.pop(source_url, None)
+        self.stream_url_cache[source_url] = {"info": info, "expires_at": expires_at}
+        while len(self.stream_url_cache) > self.bot.stream_url_cache_max_entries:
+            self.stream_url_cache.pop(next(iter(self.stream_url_cache)))
+
+    async def resolve_stream_from_source(self, source_url):
+        cached = self.cached_stream_info(source_url)
+        if cached:
+            return cached
+        info = await self.get_youtube_info(source_url, {"format": "bestaudio", "noplaylist": True})
+        self.cache_stream_info(info)
+        return info
+
     async def queue_playlist_items(self, ctx, session, items):
         """Queue resolved YouTube items and begin playback when necessary."""
         queued = 0
@@ -1313,12 +1348,11 @@ class Music(commands.Cog):
             )
             return [], 0
 
-    @staticmethod
-    def user_playlist_track_from_info(info):
+    def user_playlist_track_from_info(self, info):
         thumbnails = info.get("thumbnails") or []
+        self.cache_stream_info(info)
         return (
             info["title"],
-            info["url"],
             thumbnails[0]["url"] if thumbnails else "",
             info["webpage_url"],
             info.get("duration") or 0,
@@ -1382,7 +1416,7 @@ class Music(commands.Cog):
             pages = []
             page_tracks = []
             page_lines = []
-            for index, (title, _, thumbnail_url, source_url, duration) in enumerate(tracks, start=1):
+            for index, (title, thumbnail_url, source_url, duration) in enumerate(tracks, start=1):
                 duration_str = await convert_duration_pretty(duration)
                 song_line = (
                     f"**{index}.** [{escape_markdown(truncate_text(title, 180))}]({source_url})\n"
@@ -1418,7 +1452,7 @@ class Music(commands.Cog):
             )
             return
 
-        title, stream_url, thumbnail_url, source_url, duration = tracks[0]
+        title, thumbnail_url, source_url, duration = tracks[0]
         duration_str = await convert_duration_pretty(duration)
         dominant_color = await get_dominant_color(thumbnail_url) if thumbnail_url else 0x3498db
         embed = discord.Embed(
@@ -1429,7 +1463,7 @@ class Music(commands.Cog):
         )
         if thumbnail_url:
             embed.set_thumbnail(url=thumbnail_url)
-        embed.set_author(name="Music Stream Link", url=stream_url)
+        embed.set_author(name="YouTube Source", url=source_url)
         embed.add_field(name="Duration", value=duration_str, inline=True)
         if skipped:
             embed.set_footer(text=f"Skipped {skipped} Spotify track{'s' if skipped != 1 else ''} with no YouTube match.")
@@ -1558,7 +1592,7 @@ class Music(commands.Cog):
         if not await self.ensure_user_playlist_store(ctx):
             return
         try:
-            title, stream_url, thumbnail_url, source_url, duration = await asyncio.to_thread(
+            title, thumbnail_url, source_url, duration = await asyncio.to_thread(
                 self.user_playlist_store.remove_track,
                 ctx.author.id,
                 name,
@@ -1577,7 +1611,7 @@ class Music(commands.Cog):
         )
         if thumbnail_url:
             embed.set_thumbnail(url=thumbnail_url)
-        embed.set_author(name="Music Stream Link", url=stream_url)
+        embed.set_author(name="YouTube Source", url=source_url)
         embed.add_field(name="Duration", value=duration_str, inline=True)
         embed.add_field(name="Previous Position", value=f"#{position}", inline=True)
         await ctx.send(embed=embed, ephemeral=bool(ctx.interaction))
@@ -1650,16 +1684,26 @@ class Music(commands.Cog):
         session = await self.get_session(ctx)
         if session is None:
             return
-        items = [
-            {
-                "title": title,
-                "url": stream_url,
-                "thumbnails": [{"url": thumbnail_url}] if thumbnail_url else [],
-                "webpage_url": source_url,
-                "duration": duration,
+        semaphore = asyncio.Semaphore(self.bot.saved_playlist_resolution_concurrency)
+
+        async def resolve_track(track):
+            title, thumbnail_url, source_url, duration = track
+            try:
+                async with semaphore:
+                    info = await self.resolve_stream_from_source(source_url)
+            except (asyncio.TimeoutError, youtube_dl.utils.DownloadError, KeyError):
+                return None
+            thumbnails = info.get("thumbnails") or []
+            return {
+                "title": info.get("title") or title,
+                "url": info["url"],
+                "thumbnails": thumbnails or ([{"url": thumbnail_url}] if thumbnail_url else []),
+                "webpage_url": info.get("webpage_url") or source_url,
+                "duration": info.get("duration") or duration,
             }
-            for title, stream_url, thumbnail_url, source_url, duration in selected_tracks
-        ]
+
+        resolved_items = await asyncio.gather(*(resolve_track(track) for track in selected_tracks))
+        items = [item for item in resolved_items if item]
         voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
         playback_active = voice and (
             voice.is_playing()
@@ -1668,14 +1712,15 @@ class Music(commands.Cog):
             or (session.q.loop_current and not session.q.is_empty())
         )
         queued = await self.queue_playlist_items(ctx, session, items)
-        if queued == 1:
+        skipped = len(selected_tracks) - queued
+        if queued == 1 and not skipped:
             if playback_active:
                 await self.send_queued_track_embed(ctx, session, session.q.queue[-1])
             return
-        await interaction.followup.send(
-            f"Queued {queued} song{'s' if queued != 1 else ''} from {owner.display_name}'s playlist **{escape_markdown(name)}**."
-            , ephemeral=True,
-        )
+        summary = f"Queued {queued} song{'s' if queued != 1 else ''} from {owner.display_name}'s playlist **{escape_markdown(name)}**."
+        if skipped:
+            summary += f" Skipped {skipped} unavailable track{'s' if skipped != 1 else ''}."
+        await interaction.followup.send(summary, ephemeral=True)
 
     @commands.hybrid_command(name='mostplayed')
     async def most_played(self, ctx):

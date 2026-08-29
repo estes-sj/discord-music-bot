@@ -25,20 +25,48 @@ class UserPlaylistStore:
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE (user_id, name)
                 );
-
-                CREATE TABLE IF NOT EXISTS user_playlist_tracks (
-                    id INTEGER PRIMARY KEY,
-                    playlist_id INTEGER NOT NULL REFERENCES user_playlists(id) ON DELETE CASCADE,
-                    position INTEGER NOT NULL,
-                    title TEXT NOT NULL,
-                    stream_url TEXT NOT NULL,
-                    thumbnail_url TEXT NOT NULL,
-                    source_url TEXT NOT NULL,
-                    duration INTEGER NOT NULL,
-                    UNIQUE (playlist_id, position)
-                );
                 """
             )
+            track_columns = connection.execute("PRAGMA table_info(user_playlist_tracks)").fetchall()
+            if track_columns and any(column[1] == "stream_url" for column in track_columns):
+                connection.executescript(
+                    """
+                    CREATE TABLE user_playlist_tracks_replacement (
+                        id INTEGER PRIMARY KEY,
+                        playlist_id INTEGER NOT NULL REFERENCES user_playlists(id) ON DELETE CASCADE,
+                        position INTEGER NOT NULL,
+                        title TEXT NOT NULL,
+                        thumbnail_url TEXT NOT NULL,
+                        source_url TEXT NOT NULL,
+                        duration INTEGER NOT NULL,
+                        UNIQUE (playlist_id, position)
+                    );
+
+                    INSERT INTO user_playlist_tracks_replacement
+                        (id, playlist_id, position, title, thumbnail_url, source_url, duration)
+                    SELECT id, playlist_id, position, title, thumbnail_url, source_url, duration
+                    FROM user_playlist_tracks;
+
+                    DROP TABLE user_playlist_tracks;
+                    ALTER TABLE user_playlist_tracks_replacement RENAME TO user_playlist_tracks;
+                    """
+                )
+            elif not track_columns:
+                connection.executescript(
+                    """
+                    CREATE TABLE user_playlist_tracks (
+                        id INTEGER PRIMARY KEY,
+                        playlist_id INTEGER NOT NULL REFERENCES user_playlists(id) ON DELETE CASCADE,
+                        position INTEGER NOT NULL,
+                        title TEXT NOT NULL,
+                        thumbnail_url TEXT NOT NULL,
+                        source_url TEXT NOT NULL,
+                        duration INTEGER NOT NULL,
+                        UNIQUE (playlist_id, position)
+                    );
+
+                    """
+                )
 
     def create_playlist(self, user_id, name, max_playlists):
         name = name.strip()
@@ -88,7 +116,7 @@ class UserPlaylistStore:
         with self.connect() as connection:
             return connection.execute(
                 """
-                SELECT title, stream_url, thumbnail_url, source_url, duration
+                SELECT title, thumbnail_url, source_url, duration
                 FROM user_playlist_tracks
                 JOIN user_playlists ON user_playlists.id = user_playlist_tracks.playlist_id
                 WHERE user_playlists.user_id = ? AND user_playlists.name = ?
@@ -125,8 +153,8 @@ class UserPlaylistStore:
                 connection.execute(
                     """
                     INSERT INTO user_playlist_tracks
-                        (playlist_id, position, title, stream_url, thumbnail_url, source_url, duration)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                        (playlist_id, position, title, thumbnail_url, source_url, duration)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     (playlist_id, index, *track),
                 )
@@ -142,7 +170,7 @@ class UserPlaylistStore:
             playlist_id = playlist[0]
             track = connection.execute(
                 """
-                SELECT title, stream_url, thumbnail_url, source_url, duration
+                SELECT title, thumbnail_url, source_url, duration
                 FROM user_playlist_tracks
                 WHERE playlist_id = ? AND position = ?
                 """,

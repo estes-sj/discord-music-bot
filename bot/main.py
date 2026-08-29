@@ -110,14 +110,24 @@ client.now_playing_controls_minimum_timeout_seconds = environment_nonnegative_in
 client.now_playing_controls_timeout_buffer_seconds = environment_nonnegative_integer(
     "NOW_PLAYING_CONTROLS_TIMEOUT_BUFFER_SECONDS", 60
 )
+client.stream_url_cache_safety_margin_seconds = environment_nonnegative_integer(
+    "STREAM_URL_CACHE_SAFETY_MARGIN_SECONDS", 300
+)
+client.stream_url_cache_max_entries = environment_nonnegative_integer("STREAM_URL_CACHE_MAX_ENTRIES", 200, minimum=1)
+client.saved_playlist_resolution_concurrency = environment_nonnegative_integer(
+    "SAVED_PLAYLIST_RESOLUTION_CONCURRENCY", 3, minimum=1
+)
 logging.getLogger("discord").info(
-    "Safeguards configured: yt-dlp timeout=%ss, play cooldown=%ss, search cooldown=%ss, playlist imports/guild=%s, controls minimum=%ss, controls buffer=%ss",
+    "Safeguards configured: yt-dlp timeout=%ss, play cooldown=%ss, search cooldown=%ss, playlist imports/guild=%s, controls minimum=%ss, controls buffer=%ss, stream cache margin=%ss, stream cache entries=%s, saved playlist resolution concurrency=%s",
     client.ytdlp_timeout_seconds,
     client.play_cooldown_seconds,
     client.search_cooldown_seconds,
     client.playlist_import_concurrency_per_guild,
     client.now_playing_controls_minimum_timeout_seconds,
     client.now_playing_controls_timeout_buffer_seconds,
+    client.stream_url_cache_safety_margin_seconds,
+    client.stream_url_cache_max_entries,
+    client.saved_playlist_resolution_concurrency,
 )
 if not (
     client.guild_config_defaults["slash_commands_enabled"]
