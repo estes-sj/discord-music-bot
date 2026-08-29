@@ -58,6 +58,9 @@ FFMPEG_OPTIONS = {
 PLAYLIST_INITIAL_BATCH_SIZE = 5
 # After each # loaded, update the progress message to the user.
 PLAYLIST_PROGRESS_BATCH_SIZE = 5
+YTDLP_TIMEOUT_SECONDS = 45
+PLAY_COOLDOWN_SECONDS = 0
+SEARCH_COOLDOWN_SECONDS = 1
 
 logger = logging.getLogger("discord")
 
@@ -65,6 +68,9 @@ class Music(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.spotify_import_locks = {}
+        self.active_playlist_imports = {}
+        self.active_expensive_commands = set()
+        self.command_cooldowns = {}
         self.spotify_store = getattr(self.bot, "spotify_store", None)
         self.song_stats_store = getattr(self.bot, "song_stats_store", None)
         self.guild_config_store = getattr(self.bot, "guild_config_store", None)
@@ -91,6 +97,67 @@ class Music(commands.Cog):
     async def add_reaction(self, ctx, emoji):
         if not ctx.interaction:
             await ctx.message.add_reaction(emoji)
+
+    async def enforce_command_cooldown(self, ctx, command_name, cooldown_seconds):
+        key = (ctx.guild.id, ctx.author.id, command_name)
+        now = time.monotonic()
+        available_at = self.command_cooldowns.get(key, 0)
+        if now < available_at:
+            logger.info(
+                "Guild %s: rejected %s cooldown for user %s",
+                ctx.guild.id,
+                command_name,
+                ctx.author.id,
+            )
+            await ctx.send(
+                f"Please wait {max(1, int(available_at - now) + 1)} seconds before using `/{command_name}` again.",
+                ephemeral=bool(ctx.interaction),
+            )
+            return False
+        self.command_cooldowns[key] = now + cooldown_seconds
+        return True
+
+    async def claim_expensive_command(self, ctx, command_name):
+        key = (ctx.guild.id, ctx.author.id, command_name)
+        if key in self.active_expensive_commands:
+            logger.info(
+                "Guild %s: rejected overlapping %s for user %s",
+                ctx.guild.id,
+                command_name,
+                ctx.author.id,
+            )
+            await ctx.send(
+                f"Your previous `/{command_name}` request is still processing. Wait for it to finish before trying again.",
+                ephemeral=bool(ctx.interaction),
+            )
+            return False
+        self.active_expensive_commands.add(key)
+        logger.info("Guild %s: accepted %s for user %s", ctx.guild.id, command_name, ctx.author.id)
+        return True
+
+    def release_expensive_command(self, ctx, command_name):
+        self.active_expensive_commands.discard((ctx.guild.id, ctx.author.id, command_name))
+
+    async def claim_playlist_import(self, ctx):
+        guild_id = ctx.guild.id
+        active_imports = self.active_playlist_imports.get(guild_id, 0)
+        import_limit = getattr(self.bot, "playlist_import_concurrency_per_guild", 1)
+        if active_imports >= import_limit:
+            await ctx.send(
+                "The maximum number of playlist imports is already running in this server. "
+                "Wait for one to finish or cancel it before starting another.",
+                ephemeral=bool(ctx.interaction),
+            )
+            return False
+        self.active_playlist_imports[guild_id] = active_imports + 1
+        return True
+
+    def release_playlist_import(self, guild_id):
+        active_imports = self.active_playlist_imports.get(guild_id, 0)
+        if active_imports <= 1:
+            self.active_playlist_imports.pop(guild_id, None)
+        else:
+            self.active_playlist_imports[guild_id] = active_imports - 1
 
     async def get_session(self, ctx):
         """
@@ -616,7 +683,8 @@ class Music(commands.Cog):
             with youtube_dl.YoutubeDL({'format': 'bestaudio', 'noplaylist': True}) as ydl:
                 return ydl.extract_info(f"ytsearch:{query}", download=False)['entries'][0]
 
-        return await asyncio.to_thread(extract)
+        async with asyncio.timeout(getattr(self.bot, "ytdlp_timeout_seconds", YTDLP_TIMEOUT_SECONDS)):
+            return await asyncio.to_thread(extract)
 
     @staticmethod
     def is_youtube_playlist_url(value):
@@ -630,7 +698,16 @@ class Music(commands.Cog):
             with youtube_dl.YoutubeDL({'format': 'bestaudio', 'extract_flat': False}) as ydl:
                 return ydl.extract_info(url, download=False).get('entries', [])
 
-        return await asyncio.to_thread(extract)
+        async with asyncio.timeout(getattr(self.bot, "ytdlp_timeout_seconds", YTDLP_TIMEOUT_SECONDS)):
+            return await asyncio.to_thread(extract)
+
+    async def get_youtube_info(self, source, options):
+        def extract():
+            with youtube_dl.YoutubeDL(options) as ydl:
+                return ydl.extract_info(source, download=False)
+
+        async with asyncio.timeout(getattr(self.bot, "ytdlp_timeout_seconds", YTDLP_TIMEOUT_SECONDS)):
+            return await asyncio.to_thread(extract)
 
     async def queue_playlist_items(self, ctx, session, items):
         """Queue resolved YouTube items and begin playback when necessary."""
@@ -740,13 +817,15 @@ class Music(commands.Cog):
                 view=cancel_view,
             )
         except Exception as error:
-            logger.exception("YouTube playlist background import failed")
+            logger.exception("Guild %s: YouTube playlist background import failed", ctx.guild.id)
             cancel_view.finish()
             await self.edit_playlist_import_status(
                 status_message,
-                f"YouTube playlist import stopped after queuing {queued} of {total} selected videos: {error}",
+                f"YouTube playlist import stopped after queuing {queued} of {total} selected videos due to a source error.",
                 view=cancel_view,
             )
+        finally:
+            self.release_playlist_import(ctx.guild.id)
 
     async def start_youtube_playlist_import(self, ctx, session, selected_entries):
         initial_entries = selected_entries[:PLAYLIST_INITIAL_BATCH_SIZE]
@@ -809,13 +888,15 @@ class Music(commands.Cog):
                 view=cancel_view,
             )
         except Exception as error:
-            logger.exception("Spotify playlist background import failed")
+            logger.exception("Guild %s: Spotify playlist background import failed", ctx.guild.id)
             cancel_view.finish()
             await self.edit_playlist_import_status(
                 status_message,
-                f"Spotify import stopped after queuing {queued} of {total} selected tracks: {error}",
+                f"Spotify import stopped after queuing {queued} of {total} selected tracks due to a source error.",
                 view=cancel_view,
             )
+        finally:
+            self.release_playlist_import(ctx.guild.id)
 
     async def start_spotify_playlist_import(self, ctx, session, selected_tracks):
         initial_tracks = selected_tracks[:PLAYLIST_INITIAL_BATCH_SIZE]
@@ -837,70 +918,76 @@ class Music(commands.Cog):
         )
 
     async def import_youtube_playlist(self, ctx, url, options):
+        if not await self.claim_playlist_import(ctx):
+            return
+        background_import_started = False
         try:
-            entries = await self.get_youtube_playlist_entries(url)
-        except Exception:
-            await ctx.send("YouTube could not load that playlist.")
-            return
-        selected_entries = select_tracks([entry for entry in entries if entry], options)
-        if not selected_entries:
-            await ctx.send("No playable YouTube videos matched that selection.")
-            return
+            try:
+                entries = await self.get_youtube_playlist_entries(url)
+            except (asyncio.TimeoutError, youtube_dl.utils.DownloadError):
+                await ctx.send("YouTube could not load that playlist.")
+                return
+            selected_entries = select_tracks([entry for entry in entries if entry], options)
+            if not selected_entries:
+                await ctx.send("No playable YouTube videos matched that selection.")
+                return
 
-        session = await self.get_session(ctx)
-        if session is None:
-            return
-        if len(selected_entries) > PLAYLIST_INITIAL_BATCH_SIZE:
-            await self.start_youtube_playlist_import(ctx, session, selected_entries)
-            return
-        voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
-        queued = 0
-        async with ctx.typing():
-            for info in selected_entries:
-                try:
-                    thumbnails = info.get('thumbnails') or []
-                    session.q.enqueue(
-                        info['title'], info['url'], thumbnails[0]['url'] if thumbnails else '',
-                        info['webpage_url'], info.get('duration') or 0, ctx.author.id,
-                    )
-                    queued += 1
-                except KeyError:
-                    continue
-        if not queued:
-            await ctx.send("No selected YouTube videos could be queued.")
-            return
-        if not voice:
-            await ctx.author.voice.channel.connect()
+            session = await self.get_session(ctx)
+            if session is None:
+                return
+            if len(selected_entries) > PLAYLIST_INITIAL_BATCH_SIZE:
+                await self.start_youtube_playlist_import(ctx, session, selected_entries)
+                background_import_started = True
+                return
             voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
-            asyncio.create_task(self.auto_disconnect(ctx, voice))
-        if not voice.is_playing() and not voice.is_paused():
-            await self.play_current_track(ctx, session)
-        await ctx.send(f"YouTube playlist import: queued {queued} video{'s' if queued != 1 else ''}. Use `.q` to view the queue.")
+            queued = 0
+            async with ctx.typing():
+                for info in selected_entries:
+                    try:
+                        thumbnails = info.get('thumbnails') or []
+                        session.q.enqueue(
+                            info['title'], info['url'], thumbnails[0]['url'] if thumbnails else '',
+                            info['webpage_url'], info.get('duration') or 0, ctx.author.id,
+                        )
+                        queued += 1
+                    except KeyError:
+                        continue
+            if not queued:
+                await ctx.send("No selected YouTube videos could be queued.")
+                return
+            if not voice:
+                await ctx.author.voice.channel.connect()
+                voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
+                asyncio.create_task(self.auto_disconnect(ctx, voice))
+            if not voice.is_playing() and not voice.is_paused():
+                await self.play_current_track(ctx, session)
+            await ctx.send(
+                f"YouTube playlist import: queued {queued} video{'s' if queued != 1 else ''}. Use `.q` to view the queue."
+            )
+        finally:
+            if not background_import_started:
+                self.release_playlist_import(ctx.guild.id)
 
     async def import_spotify(self, ctx, resource, options):
+        if not await self.claim_playlist_import(ctx):
+            return
+        background_import_started = False
         credentials = await self.get_spotify_credentials(ctx)
         if not credentials:
+            self.release_playlist_import(ctx.guild.id)
             return
-        lock = self.spotify_import_locks.setdefault(ctx.guild.id, asyncio.Lock())
-        async with lock:
-            try:
+        try:
+            lock = self.spotify_import_locks.setdefault(ctx.guild.id, asyncio.Lock())
+            async with lock:
                 client = SpotifyClient(*credentials, market=os.getenv("SPOTIFY_MARKET", "US"))
                 playlist_token = None
                 if resource.resource_type == "playlist":
                     playlist_token = await self.get_spotify_playlist_token(ctx, credentials)
                     if not playlist_token:
                         return
-                tracks = await asyncio.to_thread(client.get_tracks, resource, playlist_token)
-            except (SpotifyError, requests.RequestException) as error:
-                message = f"Spotify could not load that link: {error}"
-                if resource.resource_type == "playlist" and isinstance(error, SpotifyPlaylistAuthorizationError):
-                    authorizer_id = await asyncio.to_thread(
-                        self.spotify_store.get_playlist_authorizer, ctx.guild.id
-                    )
-                    if authorizer_id:
-                        message += f" Playlist access was configured by <@{authorizer_id}>."
-                await ctx.send(message)
-                return
+                async with asyncio.timeout(getattr(self.bot, "ytdlp_timeout_seconds", YTDLP_TIMEOUT_SECONDS)):
+                    tracks = await asyncio.to_thread(client.get_tracks, resource, playlist_token)
+            
             selected_tracks = select_tracks(tracks, options)
             if not selected_tracks:
                 await ctx.send("No playable Spotify tracks matched that selection.")
@@ -911,6 +998,7 @@ class Music(commands.Cog):
                 return
             if len(selected_tracks) > PLAYLIST_INITIAL_BATCH_SIZE:
                 await self.start_spotify_playlist_import(ctx, session, selected_tracks)
+                background_import_started = True
                 return
 
             resolved = []
@@ -975,6 +1063,11 @@ class Music(commands.Cog):
             if skipped:
                 summary += f"; skipped {skipped} track{'s' if skipped != 1 else ''} with no YouTube match"
             await ctx.send(summary + ". Use `.q` to view the queue.")
+        except (SpotifyError, requests.RequestException, asyncio.TimeoutError):
+            await ctx.send("Spotify could not load that link. Try again shortly.")
+        finally:
+            if not background_import_started:
+                self.release_playlist_import(ctx.guild.id)
 
     @commands.hybrid_command(name='spotifyclear')
     async def spotify_clear(self, ctx):
@@ -1120,6 +1213,8 @@ class Music(commands.Cog):
         if not self.song_stats_store:
             await ctx.send("Song statistics are currently unavailable.")
             return
+        if ctx.interaction and not ctx.interaction.response.is_done():
+            await ctx.defer()
         rows = await asyncio.to_thread(
             getattr(self.song_stats_store, method_name), ctx.guild.id, *arguments
         )
@@ -1154,6 +1249,10 @@ class Music(commands.Cog):
     @commands.hybrid_command(name='play')
     async def play(self, ctx, *, query: str):
         """Play a search result, YouTube URL, or Spotify track, album, or playlist."""
+        if not await self.enforce_command_cooldown(
+            ctx, "play", getattr(self.bot, "play_cooldown_seconds", PLAY_COOLDOWN_SECONDS)
+        ):
+            return
         try:
             voice_channel = ctx.author.voice.channel
         except AttributeError:
@@ -1215,15 +1314,18 @@ class Music(commands.Cog):
         if session is None:
             return
         
-        async with ctx.typing():  # Shows "Bot is typing..." while processing
-            with youtube_dl.YoutubeDL({'format': 'bestaudio', 'noplaylist': True}) as ydl:
-                try:
-                    requests.get(query)
-                except:
-                    info = ydl.extract_info(f"ytsearch:{query}", download=False)['entries'][0]
-                else:
-                    info = ydl.extract_info(query, download=False)
+        try:
+            async with ctx.typing():
+                is_url = urlparse(query).scheme in {"http", "https"}
+                source = query if is_url else f"ytsearch:{query}"
+                info = await self.get_youtube_info(source, {'format': 'bestaudio', 'noplaylist': True})
+                if not is_url:
+                    info = info['entries'][0]
+        except (asyncio.TimeoutError, youtube_dl.utils.DownloadError, IndexError, KeyError):
+            await ctx.send("YouTube could not resolve that source. Try another search or link.")
+            return
 
+        async with ctx.typing():
             url = info['url']
             thumb = info['thumbnails'][0]['url']
             title = info['title']
@@ -1710,6 +1812,18 @@ class Music(commands.Cog):
     @commands.hybrid_command(name="search")
     async def search(self, ctx, *, query: str):
         """Search YouTube and choose a result to add to the queue."""
+        if not await self.enforce_command_cooldown(
+            ctx, "search", getattr(self.bot, "search_cooldown_seconds", SEARCH_COOLDOWN_SECONDS)
+        ):
+            return
+        if not await self.claim_expensive_command(ctx, "search"):
+            return
+        try:
+            await self.run_search(ctx, query)
+        finally:
+            self.release_expensive_command(ctx, "search")
+
+    async def run_search(self, ctx, query):
         embeds = []
         results = []
         async with ctx.typing():  # Shows "Bot is typing..." while processing
@@ -1721,8 +1835,11 @@ class Music(commands.Cog):
                 'skip_download': True,
             }
 
-            with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(f"ytsearch20:{query}", download=False)
+            try:
+                info = await self.get_youtube_info(f"ytsearch20:{query}", ydl_opts)
+            except (asyncio.TimeoutError, youtube_dl.utils.DownloadError):
+                await ctx.send("YouTube search timed out or failed. Try again shortly.")
+                return
 
             if not info or "entries" not in info or not info["entries"]:
                 await ctx.send("❌ No results found.")

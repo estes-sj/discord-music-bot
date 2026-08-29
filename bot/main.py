@@ -33,6 +33,16 @@ def environment_boolean(name, default):
         return False
     raise ValueError(f"{name} must be true or false")
 
+
+def environment_nonnegative_integer(name, default, minimum=0):
+    try:
+        value = int(os.getenv(name, str(default)))
+    except ValueError as error:
+        raise ValueError(f"{name} must be a whole number") from error
+    if value < minimum:
+        raise ValueError(f"{name} must be at least {minimum}")
+    return value
+
 # Bot intents configuration
 intents = discord.Intents(
     messages=True,
@@ -85,6 +95,19 @@ client.guild_config_defaults = {
     "playlist_default_tracks": max(1, int(os.getenv("PLAYLIST_DEFAULT_TRACKS", "20"))),
     "playlist_default_shuffle": os.getenv("PLAYLIST_DEFAULT_SHUFFLE", "false").lower() == "true",
 }
+client.ytdlp_timeout_seconds = environment_nonnegative_integer("YTDLP_TIMEOUT_SECONDS", 45, minimum=1)
+client.play_cooldown_seconds = environment_nonnegative_integer("PLAY_COOLDOWN_SECONDS", 0)
+client.search_cooldown_seconds = environment_nonnegative_integer("SEARCH_COOLDOWN_SECONDS", 1)
+client.playlist_import_concurrency_per_guild = environment_nonnegative_integer(
+    "PLAYLIST_IMPORT_CONCURRENCY_PER_GUILD", 1, minimum=1
+)
+logging.getLogger("discord").info(
+    "Safeguards configured: yt-dlp timeout=%ss, play cooldown=%ss, search cooldown=%ss, playlist imports/guild=%s",
+    client.ytdlp_timeout_seconds,
+    client.play_cooldown_seconds,
+    client.search_cooldown_seconds,
+    client.playlist_import_concurrency_per_guild,
+)
 if not (
     client.guild_config_defaults["slash_commands_enabled"]
     or client.guild_config_defaults["prefix_commands_enabled"]
@@ -176,6 +199,61 @@ async def application_commands_enabled(interaction):
 
 
 client.tree.interaction_check = application_commands_enabled
+
+
+async def send_error_response(target, message):
+    try:
+        if isinstance(target, discord.Interaction):
+            if target.response.is_done():
+                await target.followup.send(message, ephemeral=True)
+            else:
+                await target.response.send_message(message, ephemeral=True)
+            return
+        await target.send(message, ephemeral=bool(target.interaction))
+    except discord.HTTPException as response_error:
+        logger.warning("Could not send command error response: %s", response_error)
+
+
+def command_error_message(error):
+    if isinstance(error, commands.MissingRequiredArgument):
+        return "A required command option is missing. Use `/help` or the configured prefix help for usage."
+    if isinstance(error, discord.app_commands.TransformerError):
+        return "A command option is missing or invalid. Check the command options and try again."
+    if isinstance(error, (commands.MissingPermissions, discord.app_commands.MissingPermissions)):
+        return "You do not have permission to use that command."
+    if isinstance(error, (commands.CommandOnCooldown, discord.app_commands.CommandOnCooldown)):
+        return f"That command is rate limited. Try again in {max(1, int(error.retry_after) + 1)} seconds."
+    if isinstance(error, (commands.CheckFailure, discord.app_commands.CheckFailure)):
+        return "You cannot use that command in the current server or channel."
+    return "That command could not be completed due to an internal error. Please try again shortly."
+
+
+@client.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        return
+    original_error = getattr(error, "original", error)
+    if not isinstance(original_error, (commands.UserInputError, commands.CheckFailure)):
+        logger.error(
+            "Prefix command %s failed in guild %s",
+            getattr(ctx.command, "qualified_name", "unknown"),
+            getattr(ctx.guild, "id", "direct-message"),
+            exc_info=original_error,
+        )
+    await send_error_response(ctx, command_error_message(original_error))
+
+
+@client.tree.error
+async def on_application_command_error(interaction, error):
+    original_error = getattr(error, "original", error)
+    if not isinstance(original_error, (discord.app_commands.AppCommandError, commands.CheckFailure)):
+        logger.error(
+            "Application command %s failed in guild %s",
+            getattr(interaction.command, "qualified_name", "unknown"),
+            getattr(interaction.guild, "id", "direct-message"),
+            exc_info=original_error,
+        )
+    await send_error_response(interaction, command_error_message(original_error))
 
 
 @client.event
