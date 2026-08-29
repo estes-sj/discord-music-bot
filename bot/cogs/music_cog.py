@@ -749,6 +749,25 @@ class Music(commands.Cog):
             await self.play_current_track(ctx, session)
         return queued
 
+    async def send_queued_track_embed(self, ctx, session, track):
+        duration_str = await convert_duration_pretty(track.duration)
+        dominant_color = await get_dominant_color(track.thumb)
+        embed = discord.Embed(
+            title=escape_markdown(truncate_text(track.title)),
+            url=track.ytube,
+            color=discord.Color(dominant_color),
+            description=f"*🎵 Added to queue in <#{session.channel}>*",
+        )
+        embed.set_thumbnail(url=track.thumb)
+        embed.set_author(name="Music Stream Link", url=track.url)
+        embed.add_field(name="Duration", value=duration_str, inline=True)
+        embed.add_field(name="Added By", value=f"<@{track.user}>", inline=True)
+        queued_message = await ctx.channel.send(
+            embed=embed,
+            view=QueuedTrackControls(self, ctx.guild.id, track),
+        )
+        session.queued_track_messages[id(track)] = (track, queued_message)
+
     async def edit_playlist_import_status(self, message, content, view=...):
         try:
             if view is ...:
@@ -1047,23 +1066,7 @@ class Music(commands.Cog):
             if len(resolved) == 1:
                 if playback_active:
                     queued_track = session.q.queue[-1]
-                    duration_str = await convert_duration_pretty(queued_track.duration)
-                    dominant_color = await get_dominant_color(queued_track.thumb)
-                    embed = discord.Embed(
-                        title=escape_markdown(truncate_text(queued_track.title)),
-                        url=queued_track.ytube,
-                        color=discord.Color(dominant_color),
-                        description=f"*🎵 Added to queue in <#{session.channel}>*",
-                    )
-                    embed.set_thumbnail(url=queued_track.thumb)
-                    embed.set_author(name="Music Stream Link", url=queued_track.url)
-                    embed.add_field(name="Duration", value=duration_str, inline=True)
-                    embed.add_field(name="Added By", value=f"<@{ctx.author.id}>", inline=True)
-                    queued_message = await ctx.send(
-                        embed=embed,
-                        view=QueuedTrackControls(self, ctx.guild.id, queued_track),
-                    )
-                    session.queued_track_messages[id(queued_track)] = (queued_track, queued_message)
+                    await self.send_queued_track_embed(ctx, session, queued_track)
                 return
 
             summary = f"Spotify import: queued {len(resolved)} match{'es' if len(resolved) != 1 else ''}"
@@ -1624,7 +1627,18 @@ class Music(commands.Cog):
             }
             for title, stream_url, thumbnail_url, source_url, duration in selected_tracks
         ]
+        voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
+        playback_active = voice and (
+            voice.is_playing()
+            or voice.is_paused()
+            or session.q.continuation_pending
+            or (session.q.loop_current and not session.q.is_empty())
+        )
         queued = await self.queue_playlist_items(ctx, session, items)
+        if queued == 1:
+            if playback_active:
+                await self.send_queued_track_embed(ctx, session, session.q.queue[-1])
+            return
         await interaction.followup.send(
             f"Queued {queued} song{'s' if queued != 1 else ''} from {owner.display_name}'s playlist **{escape_markdown(name)}**."
             , ephemeral=True,

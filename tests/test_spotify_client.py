@@ -35,6 +35,16 @@ class SpotifyClientTests(unittest.TestCase):
         tracks = list(range(1, 15))
         self.assertEqual(SPOTIFY_CLIENT.select_tracks(tracks, options), [1, 2, 3, 5, 7, 9, 10, 11, 12, 13])
 
+    def test_shuffled_playlist_without_range_samples_from_every_track(self):
+        options = SPOTIFY_CLIENT.parse_playlist_options("--count 1 --shuffle", 20, 20, False)
+        tracks = ["first", "second", "third"]
+        original_sample = SPOTIFY_CLIENT.random.sample
+        try:
+            SPOTIFY_CLIENT.random.sample = lambda population, count: [population[-1]]
+            self.assertEqual(SPOTIFY_CLIENT.select_tracks(tracks, options), ["third"])
+        finally:
+            SPOTIFY_CLIENT.random.sample = original_sample
+
     def test_playlist_options_enforce_maximum(self):
         with self.assertRaises(SPOTIFY_CLIENT.SpotifyError):
             SPOTIFY_CLIENT.parse_playlist_options("--count 21", 20, 20, False)

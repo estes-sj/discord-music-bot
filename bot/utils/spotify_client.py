@@ -106,11 +106,12 @@ def select_tracks(tracks, options):
             if track_index not in selected_indices:
                 selected_indices.append(track_index)
 
-    eligible = [tracks[track_index] for track_index in selected_indices[:options["count"]]]
-    selected_count = len(eligible)
     if options["shuffle"]:
-        return random.sample(eligible, selected_count)
-    return eligible
+        if ranges == [(1, None)]:
+            return random.sample(tracks, min(options["count"], len(tracks)))
+        eligible = [tracks[track_index] for track_index in selected_indices[:options["count"]]]
+        return random.sample(eligible, len(eligible))
+    return [tracks[track_index] for track_index in selected_indices[:options["count"]]]
 
 
 class SpotifyClient:
