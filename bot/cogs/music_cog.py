@@ -1377,6 +1377,7 @@ class Music(commands.Cog):
         chunks = [queue_list[i:i + chunk_size] for i in range(0, len(queue_list), chunk_size)]
         current_track_index = session.q.queued_track_index(session.q.current_music)
         current_track_position = current_track_index + 1 if current_track_index is not None else "Unknown"
+        initial_page = current_track_index // chunk_size if current_track_index is not None else 0
 
         embeds = []
 
@@ -1396,7 +1397,7 @@ class Music(commands.Cog):
 
             embeds.append(embed)
 
-        await Paginator.CustomPaginator(timeout=120).start(ctx, pages=embeds)
+        await Paginator.CustomPaginator(timeout=120, InitialPage=initial_page).start(ctx, pages=embeds)
 
         await ctx.message.add_reaction("📜")
 
