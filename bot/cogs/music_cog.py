@@ -72,6 +72,22 @@ class Music(commands.Cog):
     def spotify_default_shuffle(self):
         return os.getenv("PLAYLIST_DEFAULT_SHUFFLE", "false").lower() == "true"
 
+    @property
+    def disconnect_empty_channel_enabled(self):
+        return os.getenv("AUTO_DISCONNECT_EMPTY_CHANNEL_ENABLED", "true").lower() == "true"
+
+    @property
+    def disconnect_empty_channel_minutes(self):
+        return max(0, int(os.getenv("AUTO_DISCONNECT_EMPTY_CHANNEL_MINUTES", "0")))
+
+    @property
+    def disconnect_inactivity_enabled(self):
+        return os.getenv("AUTO_DISCONNECT_INACTIVITY_ENABLED", "true").lower() == "true"
+
+    @property
+    def disconnect_inactivity_minutes(self):
+        return max(0, int(os.getenv("AUTO_DISCONNECT_INACTIVITY_MINUTES", "10")))
+
     async def get_session(self, ctx):
         """
         Retrieves the session (or creates if none) for the current guild and voice channel.
@@ -365,40 +381,27 @@ class Music(commands.Cog):
 
     async def auto_disconnect(self, ctx, voice):
         """
-        Automatically disconnects the bot if no one is in the voice channel 
-        or if nothing has been playing for 10 minutes.
+        Automatically disconnects according to the configured empty-channel and
+        playback-inactivity policies.
         """
-        inactivity_duration = 600  # 10 minutes in seconds
-        check_interval = 60  # Check every 60 seconds
-        elapsed_time = 0
+        empty_channel_duration = self.disconnect_empty_channel_minutes * 60
+        inactivity_duration = self.disconnect_inactivity_minutes * 60
+        check_interval = 15
+        empty_channel_elapsed = 0
+        inactivity_elapsed = 0
 
         while True:
             await asyncio.sleep(check_interval)
-            elapsed_time += check_interval
 
             # Check if bot is not in the voice channel
             if not voice.is_connected():
                 break
 
             # Check if voice channel is empty
-            if len(voice.channel.members) == 1:  # Only the bot is left
-                await ctx.send("👋 *No one is in the channel. Disconnecting...*")
-                await voice.disconnect()
-
-                session = await self.get_session_in_guild(ctx)
-                if session is None:
-                    return
-                await self.retire_now_playing_controls(session)
-                await self.retire_queued_track_controls_except(session)
-                await asyncio.sleep(0)
-                if session in sessions:
-                    sessions.remove(session)
-                break
-
-            # Check if nothing is playing
-            if not voice.is_playing() and not voice.is_paused():
-                if elapsed_time >= inactivity_duration:
-                    await ctx.send("🔇 *No activity detected for 10 minutes. Disconnecting...*")
+            if self.disconnect_empty_channel_enabled and len(voice.channel.members) == 1:
+                empty_channel_elapsed += check_interval
+                if empty_channel_elapsed >= empty_channel_duration:
+                    await ctx.send("👋 *No one is in the channel. Disconnecting...*")
                     await voice.disconnect()
 
                     session = await self.get_session_in_guild(ctx)
@@ -411,7 +414,28 @@ class Music(commands.Cog):
                         sessions.remove(session)
                     break
             else:
-                elapsed_time = 0  # Reset the timer if something is playing
+                empty_channel_elapsed = 0
+
+            # Check if nothing is playing
+            if self.disconnect_inactivity_enabled and not voice.is_playing() and not voice.is_paused():
+                inactivity_elapsed += check_interval
+                if inactivity_elapsed >= inactivity_duration:
+                    await ctx.send(
+                        f"🔇 *No activity detected for {self.disconnect_inactivity_minutes} minutes. Disconnecting...*"
+                    )
+                    await voice.disconnect()
+
+                    session = await self.get_session_in_guild(ctx)
+                    if session is None:
+                        return
+                    await self.retire_now_playing_controls(session)
+                    await self.retire_queued_track_controls_except(session)
+                    await asyncio.sleep(0)
+                    if session in sessions:
+                        sessions.remove(session)
+                    break
+            else:
+                inactivity_elapsed = 0
 
     async def ensure_user_in_voice(self, ctx):
         """
