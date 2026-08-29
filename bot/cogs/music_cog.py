@@ -382,12 +382,19 @@ class Music(commands.Cog):
         embed.add_field(name="Duration", value=duration_str, inline=True)
         embed.add_field(name="Added By", value=f"<@{ctx.author.id}>", inline=True)
 
-        controls = MusicControls(self, ctx.guild.id, completed_track.ytube)
+        controls = MusicControls(
+            self,
+            ctx.guild.id,
+            completed_track.ytube,
+            completed_track.duration,
+            start_position,
+        )
         if (
             session.now_playing_message
             and session.now_playing_track_url == completed_track.ytube
         ):
             try:
+                controls.message = session.now_playing_message
                 await session.now_playing_message.edit(embed=embed, view=controls)
                 return
             except (discord.Forbidden, discord.NotFound):
@@ -395,6 +402,7 @@ class Music(commands.Cog):
                 session.now_playing_track_url = None
 
         session.now_playing_message = await ctx.channel.send(embed=embed, view=controls)
+        controls.message = session.now_playing_message
         session.now_playing_track_url = completed_track.ytube
         session.now_playing_messages[id(session.now_playing_message)] = (
             session.now_playing_message,
@@ -1823,10 +1831,14 @@ class Music(commands.Cog):
                 )
                 embed.add_field(name="Duration", value=duration_str, inline=True)
                 embed.add_field(name="Added By", value=f"<@{ctx.author.id}>", inline=True)
-                session.now_playing_message = await ctx.send(
-                    embed=embed,
-                    view=MusicControls(self, ctx.guild.id, session.q.current_music.ytube),
+                controls = MusicControls(
+                    self,
+                    ctx.guild.id,
+                    session.q.current_music.ytube,
+                    session.q.current_music.duration,
                 )
+                session.now_playing_message = await ctx.send(embed=embed, view=controls)
+                controls.message = session.now_playing_message
                 session.now_playing_track_url = session.q.current_music.ytube
                 session.now_playing_messages[id(session.now_playing_message)] = (
                     session.now_playing_message,
@@ -2248,10 +2260,15 @@ class Music(commands.Cog):
         embed.add_field(name="Duration", value=duration_str, inline=True)
         embed.add_field(name="Added By", value=f"<@{ctx.author.id}>", inline=True)
 
-        now_playing_message = await ctx.send(
-            embed=embed,
-            view=MusicControls(self, ctx.guild.id, current_music.ytube),
+        controls = MusicControls(
+            self,
+            ctx.guild.id,
+            current_music.ytube,
+            current_music.duration,
+            session.q.current_position(),
         )
+        now_playing_message = await ctx.send(embed=embed, view=controls)
+        controls.message = now_playing_message
         session.now_playing_messages[id(now_playing_message)] = (
             now_playing_message,
             current_music.ytube,

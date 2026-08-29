@@ -7,14 +7,34 @@ logger = logging.getLogger("discord")
 
 
 class MusicControls(discord.ui.View):
-    def __init__(self, music_cog, guild_id, track_url):
-        super().__init__(timeout=600)
+    def __init__(self, music_cog, guild_id, track_url, duration=None, start_position=0):
         self.music_cog = music_cog
         self.guild_id = guild_id
         self.track_url = track_url
+        self.message = None
+        self.minimum_timeout_seconds = music_cog.bot.now_playing_controls_minimum_timeout_seconds
+        self.timeout_buffer_seconds = music_cog.bot.now_playing_controls_timeout_buffer_seconds
+        super().__init__(timeout=self.timeout_for_track(duration, start_position))
         session = self.get_session()
         if session and session.q.current_music.ytube == track_url and session.q.loop_current:
             self.loop.style = discord.ButtonStyle.success
+
+    def timeout_for_track(self, duration, start_position):
+        try:
+            remaining_seconds = max(0, float(duration) - float(start_position))
+        except (TypeError, ValueError):
+            return self.minimum_timeout_seconds
+        return max(self.minimum_timeout_seconds, remaining_seconds + self.timeout_buffer_seconds)
+
+    async def on_timeout(self):
+        if not self.message:
+            return
+        for child in self.children:
+            child.disabled = True
+        try:
+            await self.message.edit(view=self)
+        except (discord.Forbidden, discord.NotFound):
+            pass
 
     def get_session(self):
         return self.music_cog.get_session_for_guild(self.guild_id)

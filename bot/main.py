@@ -104,12 +104,20 @@ client.playlist_import_concurrency_per_guild = environment_nonnegative_integer(
 )
 client.max_playlists_per_user = environment_nonnegative_integer("MAX_PLAYLISTS_PER_USER", 3, minimum=1)
 client.max_songs_per_user = environment_nonnegative_integer("MAX_SONGS_PER_USER", 50, minimum=1)
+client.now_playing_controls_minimum_timeout_seconds = environment_nonnegative_integer(
+    "NOW_PLAYING_CONTROLS_MINIMUM_TIMEOUT_SECONDS", 600, minimum=1
+)
+client.now_playing_controls_timeout_buffer_seconds = environment_nonnegative_integer(
+    "NOW_PLAYING_CONTROLS_TIMEOUT_BUFFER_SECONDS", 60
+)
 logging.getLogger("discord").info(
-    "Safeguards configured: yt-dlp timeout=%ss, play cooldown=%ss, search cooldown=%ss, playlist imports/guild=%s",
+    "Safeguards configured: yt-dlp timeout=%ss, play cooldown=%ss, search cooldown=%ss, playlist imports/guild=%s, controls minimum=%ss, controls buffer=%ss",
     client.ytdlp_timeout_seconds,
     client.play_cooldown_seconds,
     client.search_cooldown_seconds,
     client.playlist_import_concurrency_per_guild,
+    client.now_playing_controls_minimum_timeout_seconds,
+    client.now_playing_controls_timeout_buffer_seconds,
 )
 if not (
     client.guild_config_defaults["slash_commands_enabled"]
