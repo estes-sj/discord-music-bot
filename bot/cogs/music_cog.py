@@ -23,6 +23,7 @@ from bot.views.playback_views import MusicControls
 from bot.views.config_views import GuildConfigLauncher, GuildConfigModal
 from bot.views.playlist_views import (
     PlaylistImportCancelView,
+    PersonalSpotifySetupView,
     SavedPlaylistLauncher,
     SavedPlaylistResultPaginator,
     SpotifyPlaylistLauncher,
@@ -603,6 +604,97 @@ class Music(commands.Cog):
         await ctx.send("Spotify is configured for this server. Re-run your `.play` command.")
         return None
 
+    async def get_personal_spotify_credentials(self, user_id):
+        store = getattr(self.bot, "spotify_store", None)
+        if store is None:
+            return None
+        try:
+            return await asyncio.to_thread(store.get_user_credentials, user_id)
+        except SpotifyStoreError:
+            return None
+
+    async def get_available_spotify_connection(self, ctx):
+        store = getattr(self.bot, "spotify_store", None)
+        if store is None:
+            await ctx.send("Spotify support is not configured by this bot operator.")
+            return None
+        try:
+            credentials = await asyncio.to_thread(store.get_credentials, ctx.guild.id)
+        except SpotifyStoreError:
+            credentials = None
+        if credentials:
+            return credentials, "guild"
+        credentials = await self.get_personal_spotify_credentials(ctx.author.id)
+        if credentials:
+            return credentials, "user"
+        return None
+
+    async def configure_personal_spotify(self, ctx):
+        store = getattr(self.bot, "spotify_store", None)
+        if store is None:
+            return None
+        redirect_uri = os.getenv("SPOTIFY_REDIRECT_URI")
+        if not redirect_uri:
+            await ctx.send(
+                "Private Spotify setup needs the bot operator to configure `SPOTIFY_REDIRECT_URI`.",
+                ephemeral=bool(ctx.interaction),
+            )
+            return None
+        try:
+            dm = await ctx.author.create_dm()
+            await dm.send(
+                "To create private Spotify credentials, open the Spotify Developer Dashboard, create an app, "
+                f"and add `{redirect_uri}` as its Redirect URI. Select **Web API** under APIs used, then copy "
+                "the app's Client ID and Client Secret.\n\n"
+                "Reply with your Client ID on the first line and Client Secret on the second line, for example:\n"
+                "`your-client-id`\n`your-client-secret`\n\n"
+                "They will be encrypted and saved privately for your Discord account."
+            )
+        except discord.Forbidden:
+            await ctx.send("I could not DM you. Enable DMs from server members and try again.")
+            return None
+
+        def valid_reply(message):
+            return message.author.id == ctx.author.id and message.channel.id == dm.id
+
+        try:
+            reply = await self.bot.wait_for("message", check=valid_reply, timeout=300)
+        except asyncio.TimeoutError:
+            await dm.send("Personal Spotify setup timed out.")
+            return None
+        values = [line.strip() for line in reply.content.splitlines() if line.strip()]
+        if len(values) != 2:
+            await dm.send("I need exactly two non-empty lines: Client ID, then Client Secret.")
+            return None
+        client_id, client_secret = values
+        try:
+            client = SpotifyClient(client_id, client_secret)
+            await asyncio.to_thread(client.validate_credentials)
+            await asyncio.to_thread(store.save_user_credentials, ctx.author.id, client_id, client_secret)
+        except (SpotifyError, requests.RequestException, SpotifyStoreError):
+            await dm.send("Spotify could not validate those credentials. Nothing was saved.")
+            return None
+        await dm.send("Your private Spotify credentials were saved.")
+        return client_id, client_secret
+
+    async def offer_personal_spotify_setup(self, ctx, reason, retry):
+        await ctx.send(reason, view=PersonalSpotifySetupView(self, ctx, reason, retry), ephemeral=bool(ctx.interaction))
+
+    async def retry_personal_spotify_playlist(self, ctx, resource, options):
+        credentials = await self.get_personal_spotify_credentials(ctx.author.id)
+        if credentials:
+            await self.import_spotify(ctx, resource, options, connection=(credentials, "user"))
+            return
+
+        async def retry(configured_credentials):
+            await self.import_spotify(ctx, resource, options, connection=(configured_credentials, "user"))
+
+        await self.offer_personal_spotify_setup(
+            ctx,
+            "The server's Spotify account cannot access this playlist. Use your private Spotify connection instead?",
+            retry,
+        )
+
     async def ensure_spotify_voice_access(self, ctx):
         if not await self.ensure_user_in_voice(ctx):
             return False
@@ -612,11 +704,14 @@ class Music(commands.Cog):
             return False
         return True
 
-    async def get_spotify_playlist_token(self, ctx, credentials):
+    async def get_spotify_playlist_token(self, ctx, credentials, scope="guild"):
         store = self.bot.spotify_store
         now = int(time.time())
         try:
-            token_record = await asyncio.to_thread(store.get_playlist_token, ctx.guild.id)
+            token_record = await asyncio.to_thread(
+                store.get_playlist_token if scope == "guild" else store.get_user_playlist_token,
+                ctx.guild.id if scope == "guild" else ctx.author.id,
+            )
         except SpotifyStoreError:
             token_record = None
         client = SpotifyClient(*credentials, market=os.getenv("SPOTIFY_MARKET", "US"))
@@ -628,14 +723,10 @@ class Music(commands.Cog):
                 access_token, refresh_token, expires_in = await asyncio.to_thread(
                     client.refresh_playlist_access_token, refresh_token
                 )
-                await asyncio.to_thread(
-                    store.save_playlist_token,
-                    ctx.guild.id,
-                    access_token,
-                    refresh_token,
-                    now + expires_in,
-                    ctx.author.id,
-                )
+                if scope == "guild":
+                    await asyncio.to_thread(store.save_playlist_token, ctx.guild.id, access_token, refresh_token, now + expires_in, ctx.author.id)
+                else:
+                    await asyncio.to_thread(store.save_user_playlist_token, ctx.author.id, access_token, refresh_token, now + expires_in)
                 return access_token
             except (SpotifyPlaylistAuthorizationError, requests.RequestException):
                 pass
@@ -649,7 +740,7 @@ class Music(commands.Cog):
         try:
             dm = await ctx.author.create_dm()
             await dm.send(
-                "Authorize Spotify playlist access for this server using this link:\n"
+                f"Authorize Spotify playlist access for {'this server' if scope == 'guild' else 'your private Spotify connection'} using this link:\n"
                 f"<{authorization_url}>\n\n"
                 "After Spotify redirects, copy the complete URL beginning with `http://127.0.0.1` "
                 "from your browser address bar and reply with it here. A browser connection error after the "
@@ -657,7 +748,10 @@ class Music(commands.Cog):
                 "Network tab, refresh the authorization page, click Agree, then copy the request URL for "
                 "`spotify-callback`."
             )
-            await ctx.send("I sent you a DM to authorize Spotify playlist access for this server.")
+            await ctx.send(
+                "I sent you a DM to authorize Spotify playlist access for this server."
+                if scope == "guild" else "I sent you a DM to authorize your private Spotify connection."
+            )
         except discord.Forbidden:
             await ctx.send("I could not DM you. Enable DMs from server members and try again.")
             return None
@@ -680,18 +774,17 @@ class Music(commands.Cog):
             access_token, refresh_token, expires_in = await asyncio.to_thread(
                 client.exchange_playlist_authorization_code, code, redirect_uri
             )
-            await asyncio.to_thread(
-                store.save_playlist_token,
-                ctx.guild.id,
-                access_token,
-                refresh_token,
-                now + expires_in,
-                ctx.author.id,
-            )
+            if scope == "guild":
+                await asyncio.to_thread(store.save_playlist_token, ctx.guild.id, access_token, refresh_token, now + expires_in, ctx.author.id)
+            else:
+                await asyncio.to_thread(store.save_user_playlist_token, ctx.author.id, access_token, refresh_token, now + expires_in)
         except (SpotifyPlaylistAuthorizationError, requests.RequestException, SpotifyStoreError):
             await dm.send("Spotify could not complete playlist authorization. Nothing was saved; run `.play` with the playlist again to retry.")
             return None
-        await dm.send("Spotify playlist access was authorized for this server.")
+        await dm.send(
+            "Spotify playlist access was authorized for this server."
+            if scope == "guild" else "Your private Spotify playlist access was authorized."
+        )
         return access_token
 
     async def resolve_youtube_track(self, query):
@@ -1037,21 +1130,30 @@ class Music(commands.Cog):
             if not background_import_started:
                 self.release_playlist_import(ctx.guild.id)
 
-    async def import_spotify(self, ctx, resource, options, tracks=None):
+    async def import_spotify(self, ctx, resource, options, tracks=None, connection=None):
         if not await self.claim_playlist_import(ctx):
             return
         background_import_started = False
         try:
             if tracks is None:
-                credentials = await self.get_spotify_credentials(ctx)
-                if not credentials:
+                connection = connection or await self.get_available_spotify_connection(ctx)
+                if not connection:
+                    async def retry(credentials):
+                        await self.import_spotify(ctx, resource, options, connection=(credentials, "user"))
+
+                    await self.offer_personal_spotify_setup(
+                        ctx,
+                        "This server does not have usable Spotify credentials, and you have not configured private Spotify access.",
+                        retry,
+                    )
                     return
+                credentials, scope = connection
                 lock = self.spotify_import_locks.setdefault(ctx.guild.id, asyncio.Lock())
                 async with lock:
                     client = SpotifyClient(*credentials, market=os.getenv("SPOTIFY_MARKET", "US"))
                     playlist_token = None
                     if resource.resource_type == "playlist":
-                        playlist_token = await self.get_spotify_playlist_token(ctx, credentials)
+                        playlist_token = await self.get_spotify_playlist_token(ctx, credentials, scope)
                         if not playlist_token:
                             return
                     async with asyncio.timeout(getattr(self.bot, "ytdlp_timeout_seconds", YTDLP_TIMEOUT_SECONDS)):
@@ -1116,6 +1218,11 @@ class Music(commands.Cog):
             if skipped:
                 summary += f"; skipped {skipped} track{'s' if skipped != 1 else ''} with no YouTube match"
             await ctx.send(summary + ". Use `.q` to view the queue.")
+        except SpotifyPlaylistAuthorizationError:
+            if resource.resource_type == "playlist" and connection and connection[1] == "guild":
+                await self.retry_personal_spotify_playlist(ctx, resource, options)
+            else:
+                await ctx.send("Your Spotify account cannot access that playlist.")
         except (SpotifyError, requests.RequestException, asyncio.TimeoutError):
             await ctx.send("Spotify could not load that link. Try again shortly.")
         finally:
@@ -1151,6 +1258,52 @@ class Music(commands.Cog):
             )
         else:
             await ctx.send("Spotify is not configured for this server.")
+
+    @commands.hybrid_group(name="spotify", invoke_without_command=True)
+    async def spotify(self, ctx):
+        """Manage your private Spotify connection."""
+        await ctx.send("Use `/spotify personal status` or `/spotify personal clear` to manage your private Spotify connection.", ephemeral=bool(ctx.interaction))
+
+    @spotify.group(
+        name="personal",
+        description="Manage your private Spotify connection.",
+        invoke_without_command=True,
+    )
+    async def spotify_personal(self, ctx):
+        """Manage your private Spotify connection."""
+        await ctx.send("Use `/spotify personal status` or `/spotify personal clear`.", ephemeral=bool(ctx.interaction))
+
+    @spotify_personal.command(
+        name="status",
+        description="Show your private Spotify connection status.",
+    )
+    async def spotify_personal_status(self, ctx):
+        store = getattr(self.bot, "spotify_store", None)
+        if store is None:
+            await ctx.send("Spotify support is not configured by this bot operator.", ephemeral=bool(ctx.interaction))
+            return
+        status = await asyncio.to_thread(store.user_status, ctx.author.id)
+        await ctx.send(
+            f"Your private Spotify credentials are configured (updated {status[0]} UTC)." if status
+            else "You do not have private Spotify credentials configured.",
+            ephemeral=bool(ctx.interaction),
+        )
+
+    @spotify_personal.command(
+        name="clear",
+        description="Remove your private Spotify credentials.",
+    )
+    async def spotify_personal_clear(self, ctx):
+        store = getattr(self.bot, "spotify_store", None)
+        if store is None:
+            await ctx.send("Spotify support is not configured by this bot operator.", ephemeral=bool(ctx.interaction))
+            return
+        deleted = await asyncio.to_thread(store.clear_user_credentials, ctx.author.id)
+        await ctx.send(
+            "Your private Spotify credentials and playlist authorization were cleared." if deleted
+            else "You do not have private Spotify credentials configured.",
+            ephemeral=bool(ctx.interaction),
+        )
 
     @commands.hybrid_command(name="config")
     @commands.has_guild_permissions(manage_guild=True)
@@ -1244,6 +1397,8 @@ class Music(commands.Cog):
                 f"`{prefix}config` - Open the server music settings form (Manage Server required).\n"
                 f"`{prefix}spotifystatus` - Show this server's Spotify configuration status.\n"
                 f"`{prefix}spotifyclear` - Remove this server's saved Spotify credentials.\n"
+                f"`{prefix}spotify personal status` - Show your private Spotify connection status.\n"
+                f"`{prefix}spotify personal clear` - Remove your private Spotify credentials.\n"
                 "Playlist imports support `--count`, `--range`, `--ordered`, and `--shuffle`."
             ),
             inline=False,
@@ -1294,14 +1449,20 @@ class Music(commands.Cog):
     async def resolve_user_playlist_source(self, ctx, source, maximum_tracks, options=None, progress_callback=None):
         spotify_resource = parse_resource(source)
         if spotify_resource:
-            credentials = await self.get_spotify_credentials(ctx)
-            if not credentials:
+            connection = await self.get_available_spotify_connection(ctx)
+            if not connection:
+                await ctx.send(
+                    "This server does not have usable Spotify credentials, and you have not configured private Spotify access. "
+                    "Run the Spotify request again and choose **Use my Spotify** to configure it.",
+                    ephemeral=bool(ctx.interaction),
+                )
                 return [], 0
+            credentials, scope = connection
             try:
                 client = SpotifyClient(*credentials, market=os.getenv("SPOTIFY_MARKET", "US"))
                 playlist_token = None
                 if spotify_resource.resource_type == "playlist":
-                    playlist_token = await self.get_spotify_playlist_token(ctx, credentials)
+                    playlist_token = await self.get_spotify_playlist_token(ctx, credentials, scope)
                     if not playlist_token:
                         return [], 0
                 async with asyncio.timeout(getattr(self.bot, "ytdlp_timeout_seconds", YTDLP_TIMEOUT_SECONDS)):
@@ -1568,6 +1729,16 @@ class Music(commands.Cog):
         if not await self.ensure_user_playlist_store(ctx):
             return
         spotify_resource = parse_resource(source)
+        if spotify_resource and not await self.get_available_spotify_connection(ctx):
+            async def retry(credentials):
+                await self.save_user_playlist_source(ctx, name, source)
+
+            await self.offer_personal_spotify_setup(
+                ctx,
+                "This server does not have usable Spotify credentials, and you have not configured private Spotify access.",
+                retry,
+            )
+            return
         is_playlist = (
             (spotify_resource and spotify_resource.resource_type == "playlist")
             or self.is_youtube_playlist_url(source)
@@ -1852,16 +2023,32 @@ class Music(commands.Cog):
                 await ctx.send(f"Invalid Spotify playlist options: {error}")
                 return
             if spotify_resource.resource_type == "playlist" and not spotify_arguments:
-                credentials = await self.get_spotify_credentials(ctx)
-                if not credentials:
+                connection = await self.get_available_spotify_connection(ctx)
+                if not connection:
+                    async def retry(credentials):
+                        await self.play(ctx, query=query)
+
+                    await self.offer_personal_spotify_setup(
+                        ctx,
+                        "This server does not have usable Spotify credentials, and you have not configured private Spotify access.",
+                        retry,
+                    )
                     return
+                credentials, scope = connection
                 try:
                     client = SpotifyClient(*credentials, market=os.getenv("SPOTIFY_MARKET", "US"))
-                    playlist_token = await self.get_spotify_playlist_token(ctx, credentials)
+                    playlist_token = await self.get_spotify_playlist_token(ctx, credentials, scope)
                     if not playlist_token:
                         return
                     async with asyncio.timeout(getattr(self.bot, "ytdlp_timeout_seconds", YTDLP_TIMEOUT_SECONDS)):
                         tracks = await asyncio.to_thread(client.get_tracks, spotify_resource, playlist_token)
+                except SpotifyPlaylistAuthorizationError:
+                    if scope == "guild":
+                        self.command_cooldowns.pop((ctx.guild.id, ctx.author.id, "play"), None)
+                        await self.retry_personal_spotify_playlist(ctx, spotify_resource, options)
+                    else:
+                        await ctx.send("Your Spotify account cannot access that playlist.")
+                    return
                 except (SpotifyError, requests.RequestException, asyncio.TimeoutError):
                     await ctx.send("Spotify could not load that playlist. Try again shortly.")
                     return

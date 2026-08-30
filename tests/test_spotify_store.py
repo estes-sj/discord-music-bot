@@ -41,6 +41,31 @@ class SpotifyStoreTests(unittest.TestCase):
             self.assertIsNone(store.get_playlist_token(42))
             self.assertIsNone(store.get_playlist_authorizer(42))
 
+    def test_personal_credentials_and_tokens_are_encrypted_and_isolated_from_guilds(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "spotify.db"
+            store = SPOTIFY_STORE.SpotifyStore(database_path, Fernet.generate_key().decode())
+            store.save_credentials(42, "guild-id", "guild-secret", 100)
+            store.save_user_credentials(100, "user-id", "user-secret")
+            store.save_user_playlist_token(100, "user-access", "user-refresh", 123456)
+
+            self.assertEqual(store.get_user_credentials(100), ("user-id", "user-secret"))
+            self.assertEqual(store.get_user_playlist_token(100), ("user-access", "user-refresh", 123456))
+            self.assertIsNotNone(store.user_status(100))
+            self.assertNotIn(b"user-secret", database_path.read_bytes())
+            self.assertTrue(store.clear_user_credentials(100))
+            self.assertIsNone(store.get_user_credentials(100))
+            self.assertIsNone(store.get_user_playlist_token(100))
+            self.assertEqual(store.get_credentials(42), ("guild-id", "guild-secret"))
+
+    def test_clearing_missing_personal_credentials_removes_orphaned_personal_tokens(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = SPOTIFY_STORE.SpotifyStore(Path(directory) / "spotify.db", Fernet.generate_key().decode())
+            store.save_user_playlist_token(100, "access", "refresh", 123456)
+
+            self.assertFalse(store.clear_user_credentials(100))
+            self.assertIsNone(store.get_user_playlist_token(100))
+
 
 if __name__ == "__main__":
     unittest.main()

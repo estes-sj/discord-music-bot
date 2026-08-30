@@ -78,7 +78,7 @@ Both slash-commands (`/`) and prefix commands (`.`) are supported. Prefix comman
 
   Spotify links do not stream Spotify audio directly. The bot reads Spotify metadata using credentials configured for this server, finds equivalent YouTube audio, and queues the successful matches.
 
-  On the first Spotify request in a server, the requester receives a DM asking for a Spotify Client ID and Client Secret. The bot validates them before storing them encrypted in the persistent `data/spotify.db` volume. Any user in the bot's voice channel can replace or clear the server's credentials.
+  The bot uses encrypted server Spotify credentials when they are configured. If a server has no usable credentials, the requester can choose a private **Use my Spotify** setup prompt. Private credentials are encrypted in the persistent `data/spotify.db` volume, belong only to that Discord user, and can be reused by that same user in other servers; they are never available to other members. Use `/spotify personal status` or `/spotify personal clear` to inspect or remove a private connection. `/spotifystatus` and `/spotifyclear` remain server-scoped.
 
   Track and album links use the server's Spotify application credentials. Spotify requires user authorization to enumerate playlist items. On the first playlist request, the bot DMs the requester an authorization link; after accepting it, copy the complete redirected URL from the browser address bar into the DM. The encrypted refresh token is then stored per guild and renewed automatically. Register `SPOTIFY_REDIRECT_URI` exactly in the Spotify Developer Dashboard before using playlists. Spotify forbids `localhost`; for the manual callback flow, register and configure `http://127.0.0.1:8888/spotify-callback` instead. The browser may show a connection error after redirecting, which is expected: copy that page's complete address into the DM.
 
@@ -95,7 +95,7 @@ Both slash-commands (`/`) and prefix commands (`.`) are supported. Prefix comman
       <img src="docs/spotify_callback_url.png" alt="Spotify Callback URL Example" width="70%"/>
   </div>
 
-  Spotify currently returns playlist items only for playlists owned by the authorizing account or where that account is a collaborator. For a public playlist owned by someone else, save or copy it into the authorizing Spotify account first. Playlists with no options open a requester-only configuration modal. Position selections use the same 1-based, inclusive `POSITION[,POSITION|START-END...]` format and count behavior described above.
+  Spotify currently returns playlist items only for playlists owned by the authorizing account or where that account is a collaborator. When server authorization cannot access a playlist, the requester can use their private Spotify connection instead. A private connection does not grant other Discord users access to that Spotify account. Playlists with no options open a requester-only configuration modal. Position selections use the same 1-based, inclusive `POSITION[,POSITION|START-END...]` format and count behavior described above.
 
   ```text
   /play https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC
@@ -105,6 +105,8 @@ Both slash-commands (`/`) and prefix commands (`.`) are supported. Prefix comman
   /play https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M --range 1-3,5,7,9-10 --count 10 --ordered
   /spotifyclear
   /spotifystatus
+  /spotify personal status
+  /spotify personal clear
   ```
 
   The bot queues matches it finds and reports how many selected tracks could not be resolved. Spotify credentials, access tokens, and secrets are never sent to a server channel or logged.

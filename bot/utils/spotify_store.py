@@ -50,6 +50,27 @@ class SpotifyStore:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_spotify_credentials (
+                    user_id INTEGER PRIMARY KEY,
+                    client_id BLOB NOT NULL,
+                    client_secret BLOB NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_spotify_playlist_tokens (
+                    user_id INTEGER PRIMARY KEY,
+                    access_token BLOB NOT NULL,
+                    refresh_token BLOB NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
 
     def get_credentials(self, guild_id):
         with self.connect() as connection:
@@ -137,6 +158,83 @@ class SpotifyStore:
         with self.connect() as connection:
             return connection.execute(
                 "SELECT updated_by, updated_at FROM spotify_credentials WHERE guild_id = ?", (guild_id,)
+            ).fetchone()
+
+    def get_user_credentials(self, user_id):
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT client_id, client_secret FROM user_spotify_credentials WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        if not row:
+            return None
+        try:
+            return tuple(self.fernet.decrypt(value).decode() for value in row)
+        except InvalidToken as error:
+            raise SpotifyStoreError("Stored personal Spotify credentials cannot be decrypted") from error
+
+    def save_user_credentials(self, user_id, client_id, client_secret):
+        encrypted_id = self.fernet.encrypt(client_id.encode())
+        encrypted_secret = self.fernet.encrypt(client_secret.encode())
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO user_spotify_credentials (user_id, client_id, client_secret)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    client_id = excluded.client_id,
+                    client_secret = excluded.client_secret,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (user_id, encrypted_id, encrypted_secret),
+            )
+
+    def clear_user_credentials(self, user_id):
+        with self.connect() as connection:
+            credentials_deleted = connection.execute(
+                "DELETE FROM user_spotify_credentials WHERE user_id = ?", (user_id,)
+            ).rowcount > 0
+            connection.execute("DELETE FROM user_spotify_playlist_tokens WHERE user_id = ?", (user_id,))
+            return credentials_deleted
+
+    def get_user_playlist_token(self, user_id):
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT access_token, refresh_token, expires_at
+                FROM user_spotify_playlist_tokens WHERE user_id = ?
+                """,
+                (user_id,),
+            ).fetchone()
+        if not row:
+            return None
+        try:
+            access_token, refresh_token = (self.fernet.decrypt(value).decode() for value in row[:2])
+        except InvalidToken as error:
+            raise SpotifyStoreError("Stored personal Spotify playlist authorization cannot be decrypted") from error
+        return access_token, refresh_token, row[2]
+
+    def save_user_playlist_token(self, user_id, access_token, refresh_token, expires_at):
+        encrypted_access = self.fernet.encrypt(access_token.encode())
+        encrypted_refresh = self.fernet.encrypt(refresh_token.encode())
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO user_spotify_playlist_tokens (user_id, access_token, refresh_token, expires_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    access_token = excluded.access_token,
+                    refresh_token = excluded.refresh_token,
+                    expires_at = excluded.expires_at,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (user_id, encrypted_access, encrypted_refresh, expires_at),
+            )
+
+    def user_status(self, user_id):
+        with self.connect() as connection:
+            return connection.execute(
+                "SELECT updated_at FROM user_spotify_credentials WHERE user_id = ?", (user_id,)
             ).fetchone()
 
 

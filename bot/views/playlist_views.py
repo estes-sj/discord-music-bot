@@ -3,6 +3,38 @@ import discord
 from bot.utils.spotify_client import SpotifyError, parse_playlist_options
 
 
+class PersonalSpotifySetupView(discord.ui.View):
+    def __init__(self, music_cog, ctx, reason, retry):
+        super().__init__(timeout=300)
+        self.music_cog = music_cog
+        self.ctx = ctx
+        self.reason = reason
+        self.retry = retry
+        self.owner_id = ctx.author.id
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Only the user who made this request can configure personal Spotify access.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Use my Spotify", emoji="🎵", style=discord.ButtonStyle.primary)
+    async def use_personal_spotify(self, interaction, button):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        credentials = await self.music_cog.configure_personal_spotify(self.ctx)
+        if not credentials:
+            await interaction.edit_original_response(content="Personal Spotify setup was not completed. Nothing was queued.", view=None)
+            return
+        await interaction.edit_original_response(content="Personal Spotify access is configured. Continuing your request...", view=None)
+        await self.retry(credentials)
+
+    @discord.ui.button(label="Cancel", emoji="✖", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction, button):
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="Spotify setup cancelled.", view=self)
+
+
 class PlaylistImportCancelView(discord.ui.View):
     def __init__(self, owner_id, guild_id):
         super().__init__(timeout=None)
