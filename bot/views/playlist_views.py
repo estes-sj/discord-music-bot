@@ -36,10 +36,11 @@ class PersonalSpotifySetupView(discord.ui.View):
 
 
 class PlaylistImportCancelView(discord.ui.View):
-    def __init__(self, owner_id, guild_id):
+    def __init__(self, owner_id, guild_id, require_voice=True):
         super().__init__(timeout=None)
         self.owner_id = owner_id
         self.guild_id = guild_id
+        self.require_voice = require_voice
         self.cancelled = False
         self.task = None
 
@@ -47,11 +48,12 @@ class PlaylistImportCancelView(discord.ui.View):
         if interaction.user.id != self.owner_id:
             await interaction.response.send_message("Only the user who started this import can cancel it.", ephemeral=True)
             return False
-        voice = interaction.guild.voice_client if interaction.guild else None
-        user_voice = getattr(interaction.user, "voice", None)
-        if not voice or not user_voice or user_voice.channel != voice.channel:
-            await interaction.response.send_message("Join my voice channel before cancelling this import.", ephemeral=True)
-            return False
+        if self.require_voice:
+            voice = interaction.guild.voice_client if interaction.guild else None
+            user_voice = getattr(interaction.user, "voice", None)
+            if not voice or not user_voice or user_voice.channel != voice.channel:
+                await interaction.response.send_message("Join my voice channel before cancelling this import.", ephemeral=True)
+                return False
         return True
 
     def finish(self):
@@ -248,12 +250,8 @@ class SavedPlaylistModal(discord.ui.Modal, title="Save playlist tracks"):
             await interaction.response.send_message(f"Invalid playlist configuration: {error}", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
-        await self.launcher.music_cog.save_user_playlist_source(
-            self.launcher.ctx,
-            self.launcher.playlist_name,
-            self.launcher.source,
-            options,
-            interaction=interaction,
+        await self.launcher.music_cog.start_save_user_playlist_source(
+            self.launcher.ctx, self.launcher.playlist_name, self.launcher.source, options, interaction
         )
 
 
@@ -350,10 +348,6 @@ class UserPlaylistPlayModal(discord.ui.Modal, title="Play saved playlist"):
             await interaction.response.send_message(f"Invalid playlist configuration: {error}", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
-        await self.launcher.music_cog.queue_user_playlist(
-            self.launcher.ctx,
-            self.launcher.owner,
-            self.launcher.playlist_name,
-            options,
-            interaction,
+        await self.launcher.music_cog.start_queue_user_playlist(
+            self.launcher.ctx, self.launcher.owner, self.launcher.playlist_name, options, interaction
         )

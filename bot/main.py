@@ -195,17 +195,16 @@ async def sync_guild_commands(guild):
         logger.warning("Could not sync application commands to guild %s: %s", guild.id, error)
 
 
-async def clear_global_commands():
-    global_commands = list(client.tree.get_commands())
+async def sync_profile_help_command():
+    help_command = client.tree.get_command("help")
     client.tree.clear_commands(guild=None)
+    if help_command:
+        client.tree.add_command(help_command)
     try:
         commands_synced = await client.tree.sync()
-        logger.info("Cleared %s global application commands", len(commands_synced))
+        logger.info("Synced %s global profile application command(s)", len(commands_synced))
     except discord.HTTPException as error:
-        logger.warning("Could not clear global application commands: %s", error)
-    finally:
-        for command in global_commands:
-            client.tree.add_command(command)
+        logger.warning("Could not sync global profile application commands: %s", error)
 
 
 async def application_commands_enabled(interaction):
@@ -294,7 +293,7 @@ async def on_ready():
     if not getattr(client, "commands_synced", False):
         for guild in client.guilds:
             await sync_guild_commands(guild)
-        await clear_global_commands()
+        await sync_profile_help_command()
         client.commands_synced = True
     logger.info('We have successfully logged in as {0.user} (Bot version: v{1})'.format(client, __version__))
 

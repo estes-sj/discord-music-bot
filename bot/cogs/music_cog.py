@@ -1498,7 +1498,9 @@ class Music(commands.Cog):
         await ctx.send("Personal playlists are currently unavailable.", ephemeral=bool(ctx.interaction))
         return False
 
-    async def resolve_user_playlist_source(self, ctx, source, maximum_tracks, options=None, progress_callback=None):
+    async def resolve_user_playlist_source(
+        self, ctx, source, maximum_tracks, options=None, progress_callback=None, cancel_view=None, skipped_titles=None
+    ):
         spotify_resource = parse_resource(source)
         if spotify_resource:
             connection = await self.get_available_spotify_connection(ctx)
@@ -1523,10 +1525,16 @@ class Music(commands.Cog):
                 resolved = []
                 skipped = 0
                 for index in range(0, len(selected_tracks), PLAYLIST_PROGRESS_BATCH_SIZE):
+                    if cancel_view and cancel_view.cancelled:
+                        return [], 0
                     batch = selected_tracks[index:index + PLAYLIST_PROGRESS_BATCH_SIZE]
-                    batch_resolved, batch_skipped = await self.resolve_spotify_tracks(batch)
-                    resolved.extend(batch_resolved)
-                    skipped += batch_skipped
+                    for track in batch:
+                        try:
+                            resolved.append(await self.resolve_youtube_track(track_query(track)))
+                        except Exception:
+                            skipped += 1
+                            if skipped_titles is not None:
+                                skipped_titles.append(track_query(track))
                     if progress_callback:
                         await progress_callback(len(batch) + index, len(selected_tracks), len(resolved), skipped)
                 return [self.user_playlist_track_from_info(track) for track in resolved], skipped
@@ -1571,8 +1579,19 @@ class Music(commands.Cog):
             info.get("duration") or 0,
         )
 
-    async def save_user_playlist_source(self, ctx, name, source, options=None, interaction=None):
+    async def start_save_user_playlist_source(self, ctx, name, source, options, interaction):
+        cancel_view = PlaylistImportCancelView(ctx.author.id, ctx.guild.id, require_voice=False)
+        await interaction.edit_original_response(
+            content="🎵 **Saving playlist tracks...**\nYou can cancel before tracks are saved.",
+            view=cancel_view,
+        )
+        cancel_view.task = asyncio.create_task(
+            self.save_user_playlist_source(ctx, name, source, options, interaction, cancel_view)
+        )
+
+    async def save_user_playlist_source(self, ctx, name, source, options=None, interaction=None, cancel_view=None):
         progress_message = await interaction.original_response() if interaction else None
+        skipped_titles = []
 
         async def respond(content=None, *, embed=None, view=None):
             if progress_message:
@@ -1611,7 +1630,13 @@ class Music(commands.Cog):
             remaining_tracks,
             options,
             progress_callback=update_progress,
+            cancel_view=cancel_view,
+            skipped_titles=skipped_titles,
         )
+        if cancel_view and cancel_view.cancelled:
+            cancel_view.finish()
+            await respond("🛑 **Saving playlist cancelled**\nNo tracks were saved.", view=cancel_view)
+            return
         if not tracks:
             return
         try:
@@ -1654,15 +1679,16 @@ class Music(commands.Cog):
                 page_thumbnail = page_tracks[0][1]
                 if page_thumbnail:
                     embed.set_thumbnail(url=page_thumbnail)
-                footer = f"Page {page_index} of {len(pages)}"
-                if skipped:
-                    footer += f" | Skipped {skipped} Spotify track{'s' if skipped != 1 else ''} with no YouTube match."
-                embed.set_footer(text=footer)
                 embeds.append(embed)
-            await respond(
-                embed=embeds[0],
-                view=SavedPlaylistResultPaginator(ctx.author.id, embeds),
-            )
+            if interaction:
+                await respond(content=f"Saved {added} song{'s' if added != 1 else ''} to **{escape_markdown(name)}**.")
+                await Paginator.CustomPaginator(timeout=120, ephemeral=True).start(interaction, pages=embeds)
+            else:
+                await respond(
+                    embed=embeds[0],
+                    view=SavedPlaylistResultPaginator(ctx.author.id, embeds),
+                )
+            await self.send_skipped_spotify_tracks(ctx, interaction, skipped_titles)
             return
 
         title, thumbnail_url, source_url, duration = tracks[0]
@@ -1681,6 +1707,26 @@ class Music(commands.Cog):
         if skipped:
             embed.set_footer(text=f"Skipped {skipped} Spotify track{'s' if skipped != 1 else ''} with no YouTube match.")
         await respond(embed=embed)
+        await self.send_skipped_spotify_tracks(ctx, interaction, skipped_titles)
+
+    async def send_skipped_spotify_tracks(self, ctx, interaction, skipped_titles):
+        if not skipped_titles:
+            return
+        displayed_titles = skipped_titles[:20]
+        description = "\n".join(
+            f"- {escape_markdown(truncate_text(title, 180))}" for title in displayed_titles
+        )
+        if len(skipped_titles) > len(displayed_titles):
+            description += f"\n- and {len(skipped_titles) - len(displayed_titles)} more"
+        embed = discord.Embed(
+            title=f"Skipped {len(skipped_titles)} Spotify track{'s' if len(skipped_titles) != 1 else ''}",
+            description=description,
+            color=discord.Color.orange(),
+        )
+        if interaction:
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            await ctx.send(embed=embed)
 
     @commands.hybrid_group(name="playlist", aliases=["playlists"], invoke_without_command=True)
     async def playlist(self, ctx):
@@ -1876,7 +1922,17 @@ class Music(commands.Cog):
             view=UserPlaylistPlayLauncher(self, ctx, owner, name, maximum_tracks, len(tracks)),
         )
 
-    async def queue_user_playlist(self, ctx, owner, name, options, interaction):
+    async def start_queue_user_playlist(self, ctx, owner, name, options, interaction):
+        cancel_view = PlaylistImportCancelView(ctx.author.id, ctx.guild.id)
+        await interaction.edit_original_response(
+            content="🎵 **Preparing saved playlist...**\nYou can cancel before tracks are queued.",
+            view=cancel_view,
+        )
+        cancel_view.task = asyncio.create_task(
+            self.queue_user_playlist(ctx, owner, name, options, interaction, cancel_view)
+        )
+
+    async def queue_user_playlist(self, ctx, owner, name, options, interaction, cancel_view=None):
         tracks = await asyncio.to_thread(self.user_playlist_store.get_playlist_tracks, owner.id, name)
         if not tracks:
             await interaction.edit_original_response(
@@ -1956,6 +2012,17 @@ class Music(commands.Cog):
         ]
         for processed, completed_task in enumerate(asyncio.as_completed(resolution_tasks), start=1):
             index, item, metadata_update = await completed_task
+            if cancel_view and cancel_view.cancelled:
+                for resolution_task in resolution_tasks:
+                    if not resolution_task.done():
+                        resolution_task.cancel()
+                await asyncio.gather(*resolution_tasks, return_exceptions=True)
+                cancel_view.finish()
+                await interaction.edit_original_response(
+                    content="🛑 **Preparing saved playlist cancelled**\nNo tracks were queued.",
+                    view=cancel_view,
+                )
+                return
             if item:
                 resolved_items.append((index, item))
                 resolved_count += 1
@@ -1964,6 +2031,13 @@ class Music(commands.Cog):
                 repaired_titles.append(metadata_update[1])
             if processed == total or processed % progress_interval == 0:
                 await update_progress(processed, resolved_count)
+        if cancel_view and cancel_view.cancelled:
+            cancel_view.finish()
+            await interaction.edit_original_response(
+                content="🛑 **Preparing saved playlist cancelled**\nNo tracks were queued.",
+                view=cancel_view,
+            )
+            return
         for previous_source_url, title, thumbnail_url, source_url, duration in metadata_updates:
             await asyncio.to_thread(
                 self.user_playlist_store.update_track_metadata,
@@ -1998,6 +2072,8 @@ class Music(commands.Cog):
             )
             if len(repaired_titles) > len(displayed_titles):
                 summary += f"\n- and {len(repaired_titles) - len(displayed_titles)} more"
+        if cancel_view:
+            cancel_view.finish()
         await interaction.edit_original_response(content=summary)
 
     @commands.hybrid_command(name='mostplayed')
