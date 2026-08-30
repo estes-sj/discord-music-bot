@@ -76,12 +76,13 @@ def parse_playlist_options(value, max_tracks, default_tracks, default_shuffle):
     if options["range"]:
         ranges = []
         for range_part in options["range"].split(","):
-            range_match = re.fullmatch(r"(\d+)(?:-(\d+))?", range_part)
+            range_match = re.fullmatch(r"(\d+)(?:-(\d*))?", range_part)
             if not range_match:
-                raise SpotifyError("Range must use positions or START-END ranges, such as 1-3,5,7,9-10")
+                raise SpotifyError("Range must use positions, START-END ranges, or START- ranges, such as 1-3,5,7,9-10,40-")
             start = int(range_match.group(1))
-            end = int(range_match.group(2) or start)
-            if start < 1 or end < start:
+            end_value = range_match.group(2)
+            end = None if end_value == "" and range_part.endswith("-") else int(end_value or start)
+            if start < 1 or (end is not None and end < start):
                 raise SpotifyError("Range positions must be positive and increasing")
             ranges.append((start, end))
     return {"count": count, "ranges": ranges, "shuffle": options["shuffle"]}
@@ -109,8 +110,9 @@ def select_tracks(tracks, options):
     if options["shuffle"]:
         if ranges == [(1, None)]:
             return random.sample(tracks, min(options["count"], len(tracks)))
-        eligible = [tracks[track_index] for track_index in selected_indices[:options["count"]]]
-        return random.sample(eligible, len(eligible))
+        selected_for_shuffle = selected_indices if ranges[-1][1] is None else selected_indices[:options["count"]]
+        eligible = [tracks[track_index] for track_index in selected_for_shuffle]
+        return random.sample(eligible, min(options["count"], len(eligible)))
     return [tracks[track_index] for track_index in selected_indices[:options["count"]]]
 
 

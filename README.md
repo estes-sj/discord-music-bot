@@ -60,13 +60,14 @@ Both slash-commands (`/`) and prefix commands (`.`) are supported. Prefix comman
       <img src="docs/playlist_import_form.png" alt="Playlist Import Example" width="40%"/>
   </div>
 
-  Alternatively, arguments can be used in the command. Use `--count`, `--range POSITION[,POSITION|START-END...]`, `--ordered`, or `--shuffle` to skip the prompt. Positions are 1-based and inclusive, so `1-3,5,7,9-10` selects positions 1, 2, 3, 5, 7, 9, and 10 in that order. Duplicate positions from overlapping ranges are included once.
+  Alternatively, arguments can be used in the command. Use `--count`, `--range POSITION[,POSITION|START-END|START-...]`, `--ordered`, or `--shuffle` to skip the prompt. Positions are 1-based and inclusive, so `1-3,5,7,9-10` selects positions 1, 2, 3, 5, 7, 9, and 10 in that order. `START-` selects every track from that position through the end of the playlist. Duplicate positions from overlapping ranges are included once.
 
-  `--count` determines the final number of songs. If the requested ranges contain more songs than `--count`, the bot keeps the first selected songs in range order. If they contain fewer, it fills the remainder from the tracks immediately after the final requested range, stopping at the end of the playlist. For example, `--range 1-3,5,7,9-10 --count 10` selects positions 1, 2, 3, 5, 7, 9, 10, 11, 12, and 13. `--shuffle` randomizes the final selected songs after this expansion or trimming. If `--shuffle` is used without `--range`, the bot samples from every track in the playlist. If `--shuffle` is used with `--range`, the bot samples only from the selected tracks.
+  `--count` determines the final number of songs. If the requested ranges contain more songs than `--count`, the bot keeps the first selected songs in range order. If they contain fewer, it fills the remainder from the tracks immediately after the final requested range, stopping at the end of the playlist. For example, `--range 1-3,5,7,9-10 --count 10` selects positions 1, 2, 3, 5, 7, 9, 10, 11, 12, and 13. `--shuffle` randomizes the final selected songs after this expansion or trimming. If `--shuffle` is used without `--range`, the bot samples from every track in the playlist. If `--shuffle` is used with `--range`, the bot samples only from the selected tracks. For example, `--range 40- --count 40 --shuffle` randomly selects 40 tracks from position 40 through the end of the playlist.
 
   ```text
   .play https://www.youtube.com/playlist?list=PLAYLIST_ID --count 20 --ordered
   .play https://www.youtube.com/playlist?list=PLAYLIST_ID --range 20-40 --count 10 --shuffle
+  .play https://www.youtube.com/playlist?list=PLAYLIST_ID --range 40- --count 40 --shuffle
   .play https://www.youtube.com/playlist?list=PLAYLIST_ID --range 1-3,5,7,9-10 --count 10 --ordered
   ```
 

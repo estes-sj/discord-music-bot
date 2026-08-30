@@ -38,11 +38,12 @@ class PlaylistImportCancelView(discord.ui.View):
 
 
 class SpotifyPlaylistLauncher(discord.ui.View):
-    def __init__(self, music_cog, ctx, resource):
+    def __init__(self, music_cog, ctx, resource, tracks):
         super().__init__(timeout=300)
         self.music_cog = music_cog
         self.ctx = ctx
         self.resource = resource
+        self.tracks = tracks
         self.owner_id = ctx.author.id
 
     async def interaction_check(self, interaction):
@@ -57,13 +58,13 @@ class SpotifyPlaylistLauncher(discord.ui.View):
 
     @discord.ui.button(label="Configure import", emoji="🎵", style=discord.ButtonStyle.secondary)
     async def configure(self, interaction, button):
-        await interaction.response.send_modal(SpotifyPlaylistModal(self.music_cog, self.ctx, self.resource))
+        await interaction.response.send_modal(SpotifyPlaylistModal(self.music_cog, self.ctx, self.resource, self.tracks))
 
 
 class SpotifyPlaylistModal(discord.ui.Modal, title="Spotify playlist import"):
     count = discord.ui.TextInput(label="Track count", placeholder="1-20", default="20", max_length=2)
     range_value = discord.ui.TextInput(
-        label="Positions or ranges (optional)", placeholder="1-3,5,7,9-10", required=False, max_length=100
+        label="Positions or ranges (optional)", placeholder="1-3,5,7,9-10,40-", required=False, max_length=100
     )
     ordering = discord.ui.TextInput(
         label="Ordering: ordered or shuffle",
@@ -72,13 +73,15 @@ class SpotifyPlaylistModal(discord.ui.Modal, title="Spotify playlist import"):
         max_length=7,
     )
 
-    def __init__(self, music_cog, ctx, resource):
+    def __init__(self, music_cog, ctx, resource, tracks):
         super().__init__()
         self.music_cog = music_cog
         self.ctx = ctx
         self.resource = resource
+        self.tracks = tracks
         self.config = music_cog.get_guild_config(ctx.guild.id)
         max_tracks = self.config["playlist_max_tracks"]
+        self.count.label = f"Track count (of {len(tracks)})"
         self.count.placeholder = f"1-{max_tracks}"
         self.count.default = str(self.config["playlist_default_tracks"])
         self.count.max_length = len(str(max_tracks))
@@ -99,16 +102,17 @@ class SpotifyPlaylistModal(discord.ui.Modal, title="Spotify playlist import"):
             await interaction.response.send_message(f"Invalid playlist configuration: {error}", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
-        await self.music_cog.import_spotify(self.ctx, self.resource, options)
+        await self.music_cog.import_spotify(self.ctx, self.resource, options, tracks=self.tracks)
         await interaction.followup.send("Playlist import started in the channel.", ephemeral=True)
 
 
 class YouTubePlaylistLauncher(discord.ui.View):
-    def __init__(self, music_cog, ctx, playlist_url):
+    def __init__(self, music_cog, ctx, playlist_url, entries):
         super().__init__(timeout=300)
         self.music_cog = music_cog
         self.ctx = ctx
         self.playlist_url = playlist_url
+        self.entries = entries
         self.owner_id = ctx.author.id
 
     async def interaction_check(self, interaction):
@@ -123,12 +127,12 @@ class YouTubePlaylistLauncher(discord.ui.View):
 
     @discord.ui.button(label="Configure import", emoji="🎵", style=discord.ButtonStyle.secondary)
     async def configure(self, interaction, button):
-        await interaction.response.send_modal(YouTubePlaylistModal(self.music_cog, self.ctx, self.playlist_url))
+        await interaction.response.send_modal(YouTubePlaylistModal(self.music_cog, self.ctx, self.playlist_url, self.entries))
 
 
 class YouTubePlaylistModal(SpotifyPlaylistModal, title="YouTube playlist import"):
-    def __init__(self, music_cog, ctx, playlist_url):
-        super().__init__(music_cog, ctx, playlist_url)
+    def __init__(self, music_cog, ctx, playlist_url, entries):
+        super().__init__(music_cog, ctx, playlist_url, entries)
         self.playlist_url = playlist_url
 
     async def on_submit(self, interaction):
@@ -146,7 +150,7 @@ class YouTubePlaylistModal(SpotifyPlaylistModal, title="YouTube playlist import"
             await interaction.response.send_message(f"Invalid playlist configuration: {error}", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
-        await self.music_cog.import_youtube_playlist(self.ctx, self.playlist_url, options)
+        await self.music_cog.import_youtube_playlist(self.ctx, self.playlist_url, options, entries=self.tracks)
         await interaction.followup.send("Playlist import started in the channel.", ephemeral=True)
 
 
@@ -175,7 +179,7 @@ class SavedPlaylistLauncher(discord.ui.View):
 class SavedPlaylistModal(discord.ui.Modal, title="Save playlist tracks"):
     count = discord.ui.TextInput(label="Track count", placeholder="1-20", default="20", max_length=2)
     range_value = discord.ui.TextInput(
-        label="Positions or ranges (optional)", placeholder="1-3,5,7,9-10", required=False, max_length=100
+        label="Positions or ranges (optional)", placeholder="1-3,5,7,9-10,40-", required=False, max_length=100
     )
     ordering = discord.ui.TextInput(
         label="Ordering: ordered or shuffle",
@@ -253,13 +257,14 @@ class SavedPlaylistResultPaginator(discord.ui.View):
 
 
 class UserPlaylistPlayLauncher(discord.ui.View):
-    def __init__(self, music_cog, ctx, owner, playlist_name, maximum_tracks):
+    def __init__(self, music_cog, ctx, owner, playlist_name, maximum_tracks, track_count):
         super().__init__(timeout=300)
         self.music_cog = music_cog
         self.ctx = ctx
         self.owner = owner
         self.playlist_name = playlist_name
         self.maximum_tracks = maximum_tracks
+        self.track_count = track_count
         self.owner_id = ctx.author.id
 
     async def interaction_check(self, interaction):
@@ -276,7 +281,7 @@ class UserPlaylistPlayLauncher(discord.ui.View):
 class UserPlaylistPlayModal(discord.ui.Modal, title="Play saved playlist"):
     count = discord.ui.TextInput(label="Track count", placeholder="1-20", default="20", max_length=2)
     range_value = discord.ui.TextInput(
-        label="Positions or ranges (optional)", placeholder="1-3,5,7,9-10", required=False, max_length=100
+        label="Positions or ranges (optional)", placeholder="1-3,5,7,9-10,40-", required=False, max_length=100
     )
     ordering = discord.ui.TextInput(
         label="Ordering: ordered or shuffle",
@@ -292,6 +297,7 @@ class UserPlaylistPlayModal(discord.ui.Modal, title="Play saved playlist"):
         self.maximum_tracks = min(config["playlist_max_tracks"], launcher.maximum_tracks)
         self.default_tracks = min(config["playlist_default_tracks"], self.maximum_tracks)
         self.default_shuffle = config["playlist_default_shuffle"]
+        self.count.label = f"Track count (of {launcher.track_count})"
         self.count.placeholder = f"1-{self.maximum_tracks}"
         self.count.default = str(self.default_tracks)
         self.count.max_length = len(str(self.maximum_tracks))

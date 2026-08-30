@@ -986,13 +986,13 @@ class Music(commands.Cog):
             )
         )
 
-    async def import_youtube_playlist(self, ctx, url, options):
+    async def import_youtube_playlist(self, ctx, url, options, entries=None):
         if not await self.claim_playlist_import(ctx):
             return
         background_import_started = False
         try:
             try:
-                entries = await self.get_youtube_playlist_entries(url)
+                entries = entries if entries is not None else await self.get_youtube_playlist_entries(url)
             except (asyncio.TimeoutError, youtube_dl.utils.DownloadError):
                 await ctx.send("YouTube could not load that playlist.")
                 return
@@ -1037,25 +1037,25 @@ class Music(commands.Cog):
             if not background_import_started:
                 self.release_playlist_import(ctx.guild.id)
 
-    async def import_spotify(self, ctx, resource, options):
+    async def import_spotify(self, ctx, resource, options, tracks=None):
         if not await self.claim_playlist_import(ctx):
             return
         background_import_started = False
-        credentials = await self.get_spotify_credentials(ctx)
-        if not credentials:
-            self.release_playlist_import(ctx.guild.id)
-            return
         try:
-            lock = self.spotify_import_locks.setdefault(ctx.guild.id, asyncio.Lock())
-            async with lock:
-                client = SpotifyClient(*credentials, market=os.getenv("SPOTIFY_MARKET", "US"))
-                playlist_token = None
-                if resource.resource_type == "playlist":
-                    playlist_token = await self.get_spotify_playlist_token(ctx, credentials)
-                    if not playlist_token:
-                        return
-                async with asyncio.timeout(getattr(self.bot, "ytdlp_timeout_seconds", YTDLP_TIMEOUT_SECONDS)):
-                    tracks = await asyncio.to_thread(client.get_tracks, resource, playlist_token)
+            if tracks is None:
+                credentials = await self.get_spotify_credentials(ctx)
+                if not credentials:
+                    return
+                lock = self.spotify_import_locks.setdefault(ctx.guild.id, asyncio.Lock())
+                async with lock:
+                    client = SpotifyClient(*credentials, market=os.getenv("SPOTIFY_MARKET", "US"))
+                    playlist_token = None
+                    if resource.resource_type == "playlist":
+                        playlist_token = await self.get_spotify_playlist_token(ctx, credentials)
+                        if not playlist_token:
+                            return
+                    async with asyncio.timeout(getattr(self.bot, "ytdlp_timeout_seconds", YTDLP_TIMEOUT_SECONDS)):
+                        tracks = await asyncio.to_thread(client.get_tracks, resource, playlist_token)
             
             selected_tracks = select_tracks(tracks, options)
             if not selected_tracks:
@@ -1668,8 +1668,9 @@ class Music(commands.Cog):
             return
         maximum_tracks = min(self.get_guild_config(ctx.guild.id)["playlist_max_tracks"], len(tracks))
         await ctx.send(
-            f"Configure which songs to queue from {owner.display_name}'s playlist **{escape_markdown(name)}**.",
-            view=UserPlaylistPlayLauncher(self, ctx, owner, name, maximum_tracks),
+            f"Configure which songs to queue from {owner.display_name}'s playlist **{escape_markdown(name)}** "
+            f"(**{len(tracks)}** available songs).",
+            view=UserPlaylistPlayLauncher(self, ctx, owner, name, maximum_tracks, len(tracks)),
         )
 
     async def queue_user_playlist(self, ctx, owner, name, options, interaction):
@@ -1851,12 +1852,26 @@ class Music(commands.Cog):
                 await ctx.send(f"Invalid Spotify playlist options: {error}")
                 return
             if spotify_resource.resource_type == "playlist" and not spotify_arguments:
-                if not await self.get_spotify_credentials(ctx):
+                credentials = await self.get_spotify_credentials(ctx)
+                if not credentials:
+                    return
+                try:
+                    client = SpotifyClient(*credentials, market=os.getenv("SPOTIFY_MARKET", "US"))
+                    playlist_token = await self.get_spotify_playlist_token(ctx, credentials)
+                    if not playlist_token:
+                        return
+                    async with asyncio.timeout(getattr(self.bot, "ytdlp_timeout_seconds", YTDLP_TIMEOUT_SECONDS)):
+                        tracks = await asyncio.to_thread(client.get_tracks, spotify_resource, playlist_token)
+                except (SpotifyError, requests.RequestException, asyncio.TimeoutError):
+                    await ctx.send("Spotify could not load that playlist. Try again shortly.")
+                    return
+                if not tracks:
+                    await ctx.send("That Spotify playlist has no playable tracks.")
                     return
                 await ctx.send(
-                    "Configure this Spotify playlist import. Choose **ordered** to keep Spotify's order "
+                    f"Configure this Spotify playlist import (**{len(tracks)}** available tracks). Choose **ordered** to keep Spotify's order "
                     "or **shuffle** to randomize the selected tracks.",
-                    view=SpotifyPlaylistLauncher(self, ctx, spotify_resource),
+                    view=SpotifyPlaylistLauncher(self, ctx, spotify_resource, tracks),
                 )
                 return
             if spotify_resource.resource_type == "track":
@@ -1877,10 +1892,19 @@ class Music(commands.Cog):
                 await ctx.send(f"Invalid YouTube playlist options: {error}")
                 return
             if not spotify_arguments:
+                try:
+                    entries = await self.get_youtube_playlist_entries(spotify_value)
+                except (asyncio.TimeoutError, youtube_dl.utils.DownloadError):
+                    await ctx.send("YouTube could not load that playlist.")
+                    return
+                entries = [entry for entry in entries if entry]
+                if not entries:
+                    await ctx.send("That YouTube playlist has no playable videos.")
+                    return
                 await ctx.send(
-                    "Configure this YouTube playlist import. Choose **ordered** to keep YouTube's order "
+                    f"Configure this YouTube playlist import (**{len(entries)}** available videos). Choose **ordered** to keep YouTube's order "
                     "or **shuffle** to randomize the selected videos.",
-                    view=YouTubePlaylistLauncher(self, ctx, spotify_value),
+                    view=YouTubePlaylistLauncher(self, ctx, spotify_value, entries),
                 )
                 return
             await self.import_youtube_playlist(ctx, spotify_value, options)
