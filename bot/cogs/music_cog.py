@@ -1715,32 +1715,13 @@ class Music(commands.Cog):
         )
 
     @playlist.command(name="view")
-    async def playlist_view(self, ctx, *, query: str = None):
-        """View your playlist, your playlist list, or another member's playlist list."""
+    async def playlist_view(self, ctx, member: discord.Member = None, *, name: str = None):
+        """View your playlists or a member's playlists, optionally by playlist name."""
         if not await self.ensure_user_playlist_store(ctx):
             return
-        owner = ctx.author
-        name = query.strip() if query else None
+        owner = member or ctx.author
+        name = name.strip() if name else None
         playlists = await asyncio.to_thread(self.user_playlist_store.list_playlists, owner.id)
-
-        if name:
-            mention_and_name = re.fullmatch(r"(<@!?\d+>)\s+(.+)", name)
-            if mention_and_name:
-                try:
-                    owner = await commands.MemberConverter().convert(ctx, mention_and_name.group(1))
-                except commands.MemberNotFound:
-                    await ctx.send("That member is not available in this server.", ephemeral=bool(ctx.interaction))
-                    return
-                name = mention_and_name.group(2).strip()
-                playlists = await asyncio.to_thread(self.user_playlist_store.list_playlists, owner.id)
-            elif not any(playlist_name.casefold() == name.casefold() for playlist_name, _ in playlists):
-                try:
-                    owner = await commands.MemberConverter().convert(ctx, name)
-                except commands.MemberNotFound:
-                    pass
-                else:
-                    name = None
-                    playlists = await asyncio.to_thread(self.user_playlist_store.list_playlists, owner.id)
 
         if not name:
             if not playlists:
@@ -1753,8 +1734,7 @@ class Music(commands.Cog):
         exists = any(playlist_name.casefold() == name.casefold() for playlist_name, _ in playlists)
         if not exists:
             await ctx.send(
-                f"You do not have a playlist named **{escape_markdown(name)}**. "
-                "Use a member mention to view another member's playlists.",
+                f"{owner.display_name} does not have a playlist named **{escape_markdown(name)}**.",
                 ephemeral=bool(ctx.interaction),
             )
             return
@@ -1763,7 +1743,7 @@ class Music(commands.Cog):
             return
         track_lines = [
             f"**{index}.** {escape_markdown(truncate_text(track[0]))}\n"
-            f"{await convert_duration_pretty(track[4])} | [Link]({track[3]})"
+            f"{await convert_duration_pretty(track[3])} | [Link]({track[2]})"
             for index, track in enumerate(tracks, start=1)
         ]
         embeds = [
