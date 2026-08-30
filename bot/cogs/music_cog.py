@@ -1701,34 +1701,76 @@ class Music(commands.Cog):
 
         async def resolve_track(index, track):
             title, thumbnail_url, source_url, duration = track
+            repaired = False
             try:
                 async with semaphore:
                     info = await self.resolve_stream_from_source(source_url)
             except (asyncio.TimeoutError, youtube_dl.utils.DownloadError, KeyError):
-                return index, None
+                try:
+                    async with semaphore:
+                        info = await self.resolve_youtube_track(title)
+                    self.cache_stream_info(info)
+                    repaired = True
+                except (asyncio.TimeoutError, youtube_dl.utils.DownloadError, IndexError, KeyError):
+                    return index, None, None
             thumbnails = info.get("thumbnails") or []
+            refreshed_title = info.get("title") or title
+            refreshed_thumbnail_url = thumbnails[0]["url"] if thumbnails else thumbnail_url
+            refreshed_source_url = info.get("webpage_url") or source_url
+            refreshed_duration = info.get("duration") or duration
+            metadata_changed = (
+                refreshed_title != title
+                or refreshed_thumbnail_url != thumbnail_url
+                or refreshed_source_url != source_url
+                or refreshed_duration != duration
+            )
+            metadata_update = None
+            if repaired or metadata_changed:
+                metadata_update = (
+                    source_url,
+                    refreshed_title,
+                    refreshed_thumbnail_url,
+                    refreshed_source_url,
+                    refreshed_duration,
+                )
             return index, {
-                "title": info.get("title") or title,
+                "title": refreshed_title,
                 "url": info["url"],
-                "thumbnails": thumbnails or ([{"url": thumbnail_url}] if thumbnail_url else []),
-                "webpage_url": info.get("webpage_url") or source_url,
-                "duration": info.get("duration") or duration,
-            }
+                "thumbnails": [{"url": refreshed_thumbnail_url}] if refreshed_thumbnail_url else [],
+                "webpage_url": refreshed_source_url,
+                "duration": refreshed_duration,
+            }, metadata_update
 
         await update_progress(0, 0)
         resolved_items = []
+        repaired_titles = []
+        metadata_updates = []
         resolved_count = 0
         resolution_tasks = [
             asyncio.create_task(resolve_track(index, track))
             for index, track in enumerate(selected_tracks)
         ]
         for processed, completed_task in enumerate(asyncio.as_completed(resolution_tasks), start=1):
-            index, item = await completed_task
+            index, item, metadata_update = await completed_task
             if item:
                 resolved_items.append((index, item))
                 resolved_count += 1
+            if metadata_update:
+                metadata_updates.append(metadata_update)
+                repaired_titles.append(metadata_update[1])
             if processed == total or processed % progress_interval == 0:
                 await update_progress(processed, resolved_count)
+        for previous_source_url, title, thumbnail_url, source_url, duration in metadata_updates:
+            await asyncio.to_thread(
+                self.user_playlist_store.update_track_metadata,
+                owner.id,
+                name,
+                previous_source_url,
+                title,
+                thumbnail_url,
+                source_url,
+                duration,
+            )
         items = [item for _, item in sorted(resolved_items)]
         voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
         playback_active = voice and (
@@ -1745,6 +1787,13 @@ class Music(commands.Cog):
         summary = f"Queued {queued} song{'s' if queued != 1 else ''} from {owner.display_name}'s playlist **{escape_markdown(name)}**."
         if skipped:
             summary += f" Skipped {skipped} unavailable track{'s' if skipped != 1 else ''}."
+        if repaired_titles:
+            displayed_titles = repaired_titles[:10]
+            summary += "\n\nRefreshed saved track metadata:\n" + "\n".join(
+                f"- **{escape_markdown(truncate_text(title, 150))}**" for title in displayed_titles
+            )
+            if len(repaired_titles) > len(displayed_titles):
+                summary += f"\n- and {len(repaired_titles) - len(displayed_titles)} more"
         await interaction.edit_original_response(content=summary)
 
     @commands.hybrid_command(name='mostplayed')

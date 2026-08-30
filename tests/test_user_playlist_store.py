@@ -59,6 +59,20 @@ class UserPlaylistStoreTests(unittest.TestCase):
         self.assertEqual(removed_track[0], "First")
         self.assertEqual([track[0] for track in self.store.get_playlist_tracks(1, "One")], ["Third", "Second"])
 
+    def test_updates_saved_track_metadata_by_stable_source_url(self):
+        self.store.create_playlist(1, "One", 3)
+        self.store.add_tracks(1, "One", [("Old title", "old-thumb", "old-source", 60)], 50)
+
+        updated = self.store.update_track_metadata(
+            1, "One", "old-source", "New title", "new-thumb", "new-source", 120
+        )
+
+        self.assertEqual(updated, 1)
+        self.assertEqual(
+            self.store.get_playlist_tracks(1, "One"),
+            [("New title", "new-thumb", "new-source", 120)],
+        )
+
     def test_migrates_legacy_signed_stream_urls_without_losing_tracks(self):
         database_path = Path(self.directory.name) / "legacy.db"
         with USER_PLAYLISTS.sqlite3.connect(database_path) as connection:

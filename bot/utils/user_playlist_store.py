@@ -160,6 +160,20 @@ class UserPlaylistStore:
                 )
         return len(tracks)
 
+    def update_track_metadata(self, user_id, name, previous_source_url, title, thumbnail_url, source_url, duration):
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE user_playlist_tracks
+                SET title = ?, thumbnail_url = ?, source_url = ?, duration = ?
+                WHERE playlist_id = (
+                    SELECT id FROM user_playlists WHERE user_id = ? AND name = ?
+                ) AND source_url = ?
+                """,
+                (title, thumbnail_url, source_url, duration, user_id, name, previous_source_url),
+            )
+            return cursor.rowcount
+
     def remove_track(self, user_id, name, position):
         with self.connect() as connection:
             playlist = connection.execute(
