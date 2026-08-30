@@ -1675,9 +1675,8 @@ class Music(commands.Cog):
     async def queue_user_playlist(self, ctx, owner, name, options, interaction):
         tracks = await asyncio.to_thread(self.user_playlist_store.get_playlist_tracks, owner.id, name)
         if not tracks:
-            await interaction.followup.send(
+            await interaction.edit_original_response(
                 f"{owner.display_name}'s playlist **{escape_markdown(name)}** is empty or was deleted.",
-                ephemeral=True,
             )
             return
         selected_tracks = select_tracks(tracks, options)
@@ -1685,16 +1684,30 @@ class Music(commands.Cog):
         if session is None:
             return
         semaphore = asyncio.Semaphore(self.bot.saved_playlist_resolution_concurrency)
+        total = len(selected_tracks)
+        progress_interval = max(1, (total + 9) // 10)
 
-        async def resolve_track(track):
+        async def update_progress(processed, resolved):
+            percentage = 100 if not total else (processed * 100) // total
+            content = (
+                "🎵 **Preparing saved playlist**\n"
+                f"{self.playlist_progress_bar(processed, total)} `{percentage}%` ({processed}/{total})\n"
+                f"Ready: **{resolved}**"
+            )
+            try:
+                await interaction.edit_original_response(content=content)
+            except discord.HTTPException as error:
+                logger.warning("Could not update saved playlist progress: %s", error)
+
+        async def resolve_track(index, track):
             title, thumbnail_url, source_url, duration = track
             try:
                 async with semaphore:
                     info = await self.resolve_stream_from_source(source_url)
             except (asyncio.TimeoutError, youtube_dl.utils.DownloadError, KeyError):
-                return None
+                return index, None
             thumbnails = info.get("thumbnails") or []
-            return {
+            return index, {
                 "title": info.get("title") or title,
                 "url": info["url"],
                 "thumbnails": thumbnails or ([{"url": thumbnail_url}] if thumbnail_url else []),
@@ -1702,8 +1715,21 @@ class Music(commands.Cog):
                 "duration": info.get("duration") or duration,
             }
 
-        resolved_items = await asyncio.gather(*(resolve_track(track) for track in selected_tracks))
-        items = [item for item in resolved_items if item]
+        await update_progress(0, 0)
+        resolved_items = []
+        resolved_count = 0
+        resolution_tasks = [
+            asyncio.create_task(resolve_track(index, track))
+            for index, track in enumerate(selected_tracks)
+        ]
+        for processed, completed_task in enumerate(asyncio.as_completed(resolution_tasks), start=1):
+            index, item = await completed_task
+            if item:
+                resolved_items.append((index, item))
+                resolved_count += 1
+            if processed == total or processed % progress_interval == 0:
+                await update_progress(processed, resolved_count)
+        items = [item for _, item in sorted(resolved_items)]
         voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
         playback_active = voice and (
             voice.is_playing()
@@ -1716,11 +1742,10 @@ class Music(commands.Cog):
         if queued == 1 and not skipped:
             if playback_active:
                 await self.send_queued_track_embed(ctx, session, session.q.queue[-1])
-            return
         summary = f"Queued {queued} song{'s' if queued != 1 else ''} from {owner.display_name}'s playlist **{escape_markdown(name)}**."
         if skipped:
             summary += f" Skipped {skipped} unavailable track{'s' if skipped != 1 else ''}."
-        await interaction.followup.send(summary, ephemeral=True)
+        await interaction.edit_original_response(content=summary)
 
     @commands.hybrid_command(name='mostplayed')
     async def most_played(self, ctx):
