@@ -571,18 +571,19 @@ class Music(commands.Cog):
             return False
         return True
 
-    async def get_spotify_credentials(self, ctx):
+    async def configure_guild_spotify(self, ctx):
         store = getattr(self.bot, "spotify_store", None)
         if store is None:
             await ctx.send("Spotify support is not configured by this bot operator.")
-            return None
+            return False
         try:
             credentials = await asyncio.to_thread(store.get_credentials, ctx.guild.id)
         except SpotifyStoreError:
-            await ctx.send("Stored Spotify credentials are unavailable. Run `.spotifyclear` and try again.")
-            return None
+            await ctx.send("Stored Spotify credentials are unavailable. Run `/spotify guild clear` and try again.")
+            return False
         if credentials:
-            return credentials
+            await ctx.send("Spotify is already configured for this server.")
+            return True
 
         try:
             dm = await ctx.author.create_dm()
@@ -594,7 +595,7 @@ class Music(commands.Cog):
             await ctx.send("I sent you a DM to configure Spotify for this server.")
         except discord.Forbidden:
             await ctx.send("I could not DM you. Enable DMs from server members and try again.")
-            return None
+            return False
 
         def valid_reply(message):
             return message.author.id == ctx.author.id and message.channel.id == dm.id
@@ -602,24 +603,24 @@ class Music(commands.Cog):
         try:
             reply = await self.bot.wait_for("message", check=valid_reply, timeout=300)
         except asyncio.TimeoutError:
-            await ctx.send("Spotify configuration timed out. Run `.play` with the Spotify link again to retry.")
-            return None
+            await ctx.send("Spotify configuration timed out. Run `/spotify guild setup` to retry.")
+            return False
 
         values = [line.strip() for line in reply.content.splitlines() if line.strip()]
         if len(values) != 2:
             await dm.send("I need exactly two non-empty lines: Client ID, then Client Secret.")
-            return None
+            return False
         client_id, client_secret = values
         try:
             client = SpotifyClient(client_id, client_secret)
             await asyncio.to_thread(client.validate_credentials)
             await asyncio.to_thread(store.save_credentials, ctx.guild.id, client_id, client_secret, ctx.author.id)
         except (SpotifyError, requests.RequestException, SpotifyStoreError):
-            await dm.send("Spotify could not validate those credentials. Nothing was saved; try again with a new `.play` request.")
-            return None
+            await dm.send("Spotify could not validate those credentials. Nothing was saved; run `/spotify guild setup` to try again.")
+            return False
         await dm.send("Spotify credentials were saved for this server.")
-        await ctx.send("Spotify is configured for this server. Re-run your `.play` command.")
-        return None
+        await ctx.send("Spotify is configured for this server.")
+        return True
 
     async def get_personal_spotify_credentials(self, user_id):
         store = getattr(self.bot, "spotify_store", None)
@@ -1246,11 +1247,31 @@ class Music(commands.Cog):
             if not background_import_started:
                 self.release_playlist_import(ctx.guild.id)
 
-    @commands.hybrid_command(name='spotifyclear')
-    async def spotify_clear(self, ctx):
-        """Delete this server's stored Spotify application credentials."""
-        if not await self.ensure_spotify_voice_access(ctx):
-            return
+    @commands.hybrid_group(name="spotify", invoke_without_command=True)
+    async def spotify(self, ctx):
+        """Manage server and private Spotify connections."""
+        await ctx.send(
+            "Use `/spotify guild setup`, `/spotify server status`, or `/spotify personal status`.",
+            ephemeral=bool(ctx.interaction),
+        )
+
+    @spotify.group(
+        name="guild",
+        description="Manage this server's Spotify credentials.",
+        invoke_without_command=True,
+    )
+    async def spotify_guild(self, ctx):
+        """Manage this server's Spotify credentials."""
+        await ctx.send("Use `/spotify guild setup` or `/spotify guild clear`.", ephemeral=bool(ctx.interaction))
+
+    @spotify_guild.command(name="setup", description="Configure Spotify credentials for this server.")
+    @commands.has_guild_permissions(manage_guild=True)
+    async def spotify_guild_setup(self, ctx):
+        await self.configure_guild_spotify(ctx)
+
+    @spotify_guild.command(name="clear", description="Remove this server's Spotify credentials.")
+    @commands.has_guild_permissions(manage_guild=True)
+    async def spotify_guild_clear(self, ctx):
         store = getattr(self.bot, "spotify_store", None)
         if store is None:
             await ctx.send("Spotify support is not configured by this bot operator.")
@@ -1258,11 +1279,17 @@ class Music(commands.Cog):
         deleted = await asyncio.to_thread(store.clear_credentials, ctx.guild.id)
         await ctx.send("Spotify credentials cleared for this server." if deleted else "No Spotify credentials are configured for this server.")
 
-    @commands.hybrid_command(name='spotifystatus')
-    async def spotify_status(self, ctx):
-        """Show whether this server has Spotify application credentials configured."""
-        if not await self.ensure_spotify_voice_access(ctx):
-            return
+    @spotify.group(
+        name="server",
+        description="View this server's Spotify configuration.",
+        invoke_without_command=True,
+    )
+    async def spotify_server(self, ctx):
+        """View this server's Spotify configuration."""
+        await ctx.send("Use `/spotify server status`.", ephemeral=bool(ctx.interaction))
+
+    @spotify_server.command(name="status", description="Show this server's Spotify configuration status.")
+    async def spotify_server_status(self, ctx):
         store = getattr(self.bot, "spotify_store", None)
         if store is None:
             await ctx.send("Spotify support is not configured by this bot operator.")
@@ -1276,11 +1303,6 @@ class Music(commands.Cog):
         else:
             await ctx.send("Spotify is not configured for this server.")
 
-    @commands.hybrid_group(name="spotify", invoke_without_command=True)
-    async def spotify(self, ctx):
-        """Manage your private Spotify connection."""
-        await ctx.send("Use `/spotify personal status` or `/spotify personal clear` to manage your private Spotify connection.", ephemeral=bool(ctx.interaction))
-
     @spotify.group(
         name="personal",
         description="Manage your private Spotify connection.",
@@ -1288,7 +1310,18 @@ class Music(commands.Cog):
     )
     async def spotify_personal(self, ctx):
         """Manage your private Spotify connection."""
-        await ctx.send("Use `/spotify personal status` or `/spotify personal clear`.", ephemeral=bool(ctx.interaction))
+        await ctx.send("Use `/spotify personal setup`, `/spotify personal status`, or `/spotify personal clear`.", ephemeral=bool(ctx.interaction))
+
+    @spotify_personal.command(
+        name="setup",
+        description="Configure your private Spotify credentials.",
+    )
+    async def spotify_personal_setup(self, ctx):
+        if ctx.interaction:
+            await ctx.defer(ephemeral=True, thinking=True)
+        credentials = await self.configure_personal_spotify(ctx)
+        if credentials:
+            await ctx.send("Your private Spotify credentials are configured.", ephemeral=bool(ctx.interaction))
 
     @spotify_personal.command(
         name="status",
@@ -1412,8 +1445,10 @@ class Music(commands.Cog):
             name="Spotify and server settings",
             value=(
                 f"`{prefix}config` - Open the server music settings form (Manage Server required).\n"
-                f"`{prefix}spotifystatus` - Show this server's Spotify configuration status.\n"
-                f"`{prefix}spotifyclear` - Remove this server's saved Spotify credentials.\n"
+                f"`{prefix}spotify guild setup` - Configure Spotify for this server (Manage Server required).\n"
+                f"`{prefix}spotify guild clear` - Remove this server's Spotify credentials (Manage Server required).\n"
+                f"`{prefix}spotify server status` - Show this server's Spotify configuration status.\n"
+                f"`{prefix}spotify personal setup` - Configure your private Spotify credentials.\n"
                 f"`{prefix}spotify personal status` - Show your private Spotify connection status.\n"
                 f"`{prefix}spotify personal clear` - Remove your private Spotify credentials.\n"
                 "Playlist imports support `--count`, `--range`, `--ordered`, and `--shuffle`."
