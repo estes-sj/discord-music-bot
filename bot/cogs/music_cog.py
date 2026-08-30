@@ -340,12 +340,29 @@ class Music(commands.Cog):
     async def play_current_track(self, ctx, session, start_position=0, record_play=True):
         """Start the session's current track and send its now-playing controls."""
         voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
+        current_track = session.q.current_music
+        try:
+            stream_info = await self.resolve_stream_from_source(current_track.ytube)
+            stream_url = stream_info["url"]
+        except (asyncio.TimeoutError, youtube_dl.utils.DownloadError, KeyError) as error:
+            logger.warning(
+                "Guild %s: could not refresh stream URL for %s: %s",
+                ctx.guild.id,
+                current_track.title,
+                error,
+            )
+            await ctx.channel.send(
+                f"Could not refresh the stream for **{escape_markdown(truncate_text(current_track.title, 150))}**; skipping it."
+            )
+            session.q.skip_requested = True
+            await self.continue_queue(ctx, current_track, None)
+            return
         ffmpeg_options = FFMPEG_OPTIONS.copy()
         if start_position:
             ffmpeg_options["before_options"] += f" -ss {start_position:.3f}"
-        source = await discord.FFmpegOpusAudio.from_probe(session.q.current_music.url, **ffmpeg_options)
+        source = await discord.FFmpegOpusAudio.from_probe(stream_url, **ffmpeg_options)
 
-        completed_track = session.q.current_music
+        completed_track = current_track
         voice.play(
             source,
             after=lambda error: self.prepare_continue_queue(ctx, completed_track, error),
