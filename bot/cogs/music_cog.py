@@ -1947,12 +1947,12 @@ class Music(commands.Cog):
         total = len(selected_tracks)
         progress_interval = max(1, (total + 9) // 10)
 
-        async def update_progress(processed, resolved):
+        async def update_progress(processed, resolved, queued):
             percentage = 100 if not total else (processed * 100) // total
             content = (
                 "🎵 **Preparing saved playlist**\n"
                 f"{self.playlist_progress_bar(processed, total)} `{percentage}%` ({processed}/{total})\n"
-                f"Ready: **{resolved}**"
+                f"Ready: **{resolved}** | Queued: **{queued}**"
             )
             try:
                 await interaction.edit_original_response(content=content)
@@ -2001,11 +2001,14 @@ class Music(commands.Cog):
                 "duration": refreshed_duration,
             }, metadata_update
 
-        await update_progress(0, 0)
-        resolved_items = []
+        await update_progress(0, 0, 0)
+        resolved_by_index = {}
         repaired_titles = []
         metadata_updates = []
         resolved_count = 0
+        queued = 0
+        next_queue_index = 0
+        queued_batch = []
         resolution_tasks = [
             asyncio.create_task(resolve_track(index, track))
             for index, track in enumerate(selected_tracks)
@@ -2019,25 +2022,35 @@ class Music(commands.Cog):
                 await asyncio.gather(*resolution_tasks, return_exceptions=True)
                 cancel_view.finish()
                 await interaction.edit_original_response(
-                    content="🛑 **Preparing saved playlist cancelled**\nNo tracks were queued.",
+                    content=f"🛑 **Preparing saved playlist cancelled**\nQueued before cancellation: **{queued}** songs.",
                     view=cancel_view,
                 )
                 return
+            resolved_by_index[index] = item
             if item:
-                resolved_items.append((index, item))
                 resolved_count += 1
             if metadata_update:
                 metadata_updates.append(metadata_update)
                 repaired_titles.append(metadata_update[1])
+            while next_queue_index in resolved_by_index:
+                resolved_item = resolved_by_index.pop(next_queue_index)
+                next_queue_index += 1
+                if resolved_item:
+                    queued_batch.append(resolved_item)
+                if len(queued_batch) == PLAYLIST_PROGRESS_BATCH_SIZE:
+                    queued += await self.queue_playlist_items(ctx, session, queued_batch)
+                    queued_batch = []
             if processed == total or processed % progress_interval == 0:
-                await update_progress(processed, resolved_count)
+                await update_progress(processed, resolved_count, queued)
         if cancel_view and cancel_view.cancelled:
             cancel_view.finish()
             await interaction.edit_original_response(
-                content="🛑 **Preparing saved playlist cancelled**\nNo tracks were queued.",
+                content=f"🛑 **Preparing saved playlist cancelled**\nQueued before cancellation: **{queued}** songs.",
                 view=cancel_view,
             )
             return
+        if queued_batch:
+            queued += await self.queue_playlist_items(ctx, session, queued_batch)
         for previous_source_url, title, thumbnail_url, source_url, duration in metadata_updates:
             await asyncio.to_thread(
                 self.user_playlist_store.update_track_metadata,
@@ -2049,19 +2062,7 @@ class Music(commands.Cog):
                 source_url,
                 duration,
             )
-        items = [item for _, item in sorted(resolved_items)]
-        voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
-        playback_active = voice and (
-            voice.is_playing()
-            or voice.is_paused()
-            or session.q.continuation_pending
-            or (session.q.loop_current and not session.q.is_empty())
-        )
-        queued = await self.queue_playlist_items(ctx, session, items)
         skipped = len(selected_tracks) - queued
-        if queued == 1 and not skipped:
-            if playback_active:
-                await self.send_queued_track_embed(ctx, session, session.q.queue[-1])
         summary = f"Queued {queued} song{'s' if queued != 1 else ''} from {owner.display_name}'s playlist **{escape_markdown(name)}**."
         if skipped:
             summary += f" Skipped {skipped} unavailable track{'s' if skipped != 1 else ''}."
