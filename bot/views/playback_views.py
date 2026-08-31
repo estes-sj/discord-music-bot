@@ -84,8 +84,17 @@ class MusicControls(discord.ui.View):
     async def skip(self, interaction, button):
         session = self.get_session()
         voice = interaction.guild.voice_client
-        if not session or not session.q.theres_next():
+        if not session:
             await interaction.response.send_message("There are no more songs in the queue.", ephemeral=True)
+            return
+        if not session.q.theres_next():
+            session.q.clear_queue()
+            await self.music_cog.retire_now_playing_controls(session)
+            await self.music_cog.retire_queued_track_controls_except(session)
+            voice.stop()
+            for child in self.children:
+                child.disabled = True
+            await interaction.response.edit_message(view=self)
             return
         session.q.skip_requested = True
         voice.stop()

@@ -2315,12 +2315,15 @@ class Music(commands.Cog):
         if session is None:
             return
 
+        voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
         if not session.q.theres_next():
-            await ctx.send("*There are no more songs in the queue.*")
-            await self.add_reaction(ctx, "🤷‍♂️")
+            await self.retire_now_playing_controls(session)
+            await self.retire_queued_track_controls_except(session)
+            session.q.clear_queue()
+            voice.stop()
+            await self.add_reaction(ctx, "⏭️")
             return
         
-        voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
         if voice.is_playing():
             session.q.skip_requested = True
             voice.stop()
