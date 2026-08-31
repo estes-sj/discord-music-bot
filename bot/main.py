@@ -198,6 +198,7 @@ logger.addHandler(handler)
 
 async def sync_guild_commands(guild):
     client.tree.copy_global_to(guild=guild)
+    client.tree.remove_command("help", guild=guild)
     try:
         commands_synced = await client.tree.sync(guild=guild)
         logger.info("Synced %s application commands to guild %s", len(commands_synced), guild.id)

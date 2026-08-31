@@ -619,6 +619,9 @@ class Music(commands.Cog):
             await dm.send("Spotify could not validate those credentials. Nothing was saved; run `/spotify guild setup` to try again.")
             return False
         await dm.send("Spotify credentials were saved for this server.")
+        await self.get_spotify_playlist_token(
+            ctx, (client_id, client_secret), scope="guild"
+        )
         await ctx.send("Spotify is configured for this server.")
         return True
 
@@ -693,6 +696,7 @@ class Music(commands.Cog):
             await dm.send("Spotify could not validate those credentials. Nothing was saved.")
             return None
         await dm.send("Your private Spotify credentials were saved.")
+        await self.get_spotify_playlist_token(ctx, (client_id, client_secret), scope="user")
         return client_id, client_secret
 
     async def offer_personal_spotify_setup(self, ctx, reason, retry):
@@ -807,7 +811,9 @@ class Music(commands.Cog):
 
     async def resolve_youtube_track(self, query):
         def extract():
-            with youtube_dl.YoutubeDL({'format': 'bestaudio', 'noplaylist': True}) as ydl:
+            with youtube_dl.YoutubeDL({
+                'format': 'bestaudio', 'noplaylist': True, 'quiet': True, 'no_warnings': True,
+            }) as ydl:
                 return ydl.extract_info(f"ytsearch:{query}", download=False)['entries'][0]
 
         async with asyncio.timeout(getattr(self.bot, "ytdlp_timeout_seconds", YTDLP_TIMEOUT_SECONDS)):
@@ -820,17 +826,48 @@ class Music(commands.Cog):
             parse_qs(parsed.query).get("list")
         )
 
-    async def get_youtube_playlist_entries(self, url):
+    async def get_youtube_playlist_entries(self, url, progress_callback=None):
+        loop = asyncio.get_running_loop()
+        last_reported = 0
+        progress_updates = []
+
+        def report_progress(info, incomplete=False):
+            nonlocal last_reported
+            if not progress_callback:
+                return None
+            processed = info.get("playlist_index")
+            total = info.get("playlist_count")
+            if not isinstance(processed, int) or not isinstance(total, int):
+                return None
+            if processed <= last_reported:
+                return None
+            if processed != total and processed - last_reported < PLAYLIST_PROGRESS_BATCH_SIZE:
+                return None
+            last_reported = processed
+            progress_updates.append(
+                asyncio.run_coroutine_threadsafe(progress_callback(processed, total), loop)
+            )
+            return None
+
         def extract():
-            with youtube_dl.YoutubeDL({'format': 'bestaudio', 'extract_flat': False}) as ydl:
+            with youtube_dl.YoutubeDL({
+                'format': 'bestaudio', 'extract_flat': False, 'quiet': True,
+                'no_warnings': True, 'match_filter': report_progress,
+            }) as ydl:
                 return ydl.extract_info(url, download=False).get('entries', [])
 
         async with asyncio.timeout(getattr(self.bot, "ytdlp_timeout_seconds", YTDLP_TIMEOUT_SECONDS)):
-            return await asyncio.to_thread(extract)
+            entries = await asyncio.to_thread(extract)
+        if progress_updates:
+            await asyncio.gather(
+                *(asyncio.wrap_future(progress_update) for progress_update in progress_updates),
+                return_exceptions=True,
+            )
+        return entries
 
     async def get_youtube_info(self, source, options):
         def extract():
-            with youtube_dl.YoutubeDL(options) as ydl:
+            with youtube_dl.YoutubeDL({**options, 'quiet': True, 'no_warnings': True}) as ydl:
                 return ydl.extract_info(source, download=False)
 
         async with asyncio.timeout(getattr(self.bot, "ytdlp_timeout_seconds", YTDLP_TIMEOUT_SECONDS)):
@@ -943,6 +980,14 @@ class Music(commands.Cog):
             f"🎵 **{service} import in progress**\n"
             f"{self.playlist_progress_bar(processed, total)} `{percentage}%` ({processed}/{total})\n"
             f"Queued: **{queued}** {item_name}; adding **{remaining}** remaining in the background..."
+        )
+
+    def playlist_loading_progress(self, processed, total):
+        percentage = 100 if not total else (processed * 100) // total
+        return (
+            "🎵 **Loading YouTube playlist**\n"
+            f"{self.playlist_progress_bar(processed, total)} `{percentage}%` ({processed}/{total})\n"
+            f"Found: **{processed}** available video{'s' if processed != 1 else ''}."
         )
 
     def playlist_import_complete(self, service, total, queued, item_name, skipped=0):
@@ -1318,7 +1363,7 @@ class Music(commands.Cog):
     )
     async def spotify_personal_setup(self, ctx):
         if ctx.interaction:
-            await ctx.defer(ephemeral=True, thinking=True)
+            await ctx.interaction.response.defer(ephemeral=True, thinking=True)
         credentials = await self.configure_personal_spotify(ctx)
         if credentials:
             await ctx.send("Your private Spotify credentials are configured.", ephemeral=bool(ctx.interaction))
@@ -2106,6 +2151,8 @@ class Music(commands.Cog):
     @commands.hybrid_command(name='play')
     async def play(self, ctx, *, query: str):
         """Play a search result, YouTube URL, or Spotify track, album, or playlist."""
+        if ctx.interaction and not ctx.interaction.response.is_done():
+            await ctx.defer()
         if not await self.enforce_command_cooldown(
             ctx, "play", getattr(self.bot, "play_cooldown_seconds", PLAY_COOLDOWN_SECONDS)
         ):
@@ -2188,18 +2235,33 @@ class Music(commands.Cog):
                 await ctx.send(f"Invalid YouTube playlist options: {error}")
                 return
             if not spotify_arguments:
+                status_message = await ctx.send("🎵 **Loading YouTube playlist**\nFinding available videos...")
+
+                async def update_loading_progress(processed, total):
+                    await self.edit_playlist_import_status(
+                        status_message, self.playlist_loading_progress(processed, total)
+                    )
+
                 try:
-                    entries = await self.get_youtube_playlist_entries(spotify_value)
+                    entries = await self.get_youtube_playlist_entries(
+                        spotify_value, progress_callback=update_loading_progress
+                    )
                 except (asyncio.TimeoutError, youtube_dl.utils.DownloadError):
-                    await ctx.send("YouTube could not load that playlist.")
+                    await self.edit_playlist_import_status(
+                        status_message, "YouTube could not load that playlist."
+                    )
                     return
                 entries = [entry for entry in entries if entry]
                 if not entries:
-                    await ctx.send("That YouTube playlist has no playable videos.")
+                    await self.edit_playlist_import_status(
+                        status_message, "That YouTube playlist has no playable videos."
+                    )
                     return
-                await ctx.send(
+                await status_message.edit(
+                    content=(
                     f"Configure this YouTube playlist import (**{len(entries)}** available videos). Choose **ordered** to keep YouTube's order "
-                    "or **shuffle** to randomize the selected videos.",
+                    "or **shuffle** to randomize the selected videos."
+                    ),
                     view=YouTubePlaylistLauncher(self, ctx, spotify_value, entries),
                 )
                 return
