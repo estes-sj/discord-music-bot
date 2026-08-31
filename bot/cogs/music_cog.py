@@ -582,7 +582,12 @@ class Music(commands.Cog):
             await ctx.send("Stored Spotify credentials are unavailable. Run `/spotify server clear` and try again.")
             return False
         if credentials:
-            await ctx.send("Spotify is already configured for this server.")
+            status = await asyncio.to_thread(store.status, ctx.guild.id)
+            configured_by, updated_at = status
+            await ctx.send(
+                f"Spotify is configured for this server by <@{configured_by}> (updated {updated_at} UTC). "
+                "Use `/spotify server clear` and then `/spotify server setup` to replace its credentials."
+            )
             return True
 
         try:
@@ -1356,6 +1361,18 @@ class Music(commands.Cog):
         description="Configure your private Spotify credentials.",
     )
     async def spotify_user_setup(self, ctx):
+        store = getattr(self.bot, "spotify_store", None)
+        if store is None:
+            await ctx.send("Spotify support is not configured by this bot operator.", ephemeral=bool(ctx.interaction))
+            return
+        status = await asyncio.to_thread(store.user_status, ctx.author.id)
+        if status:
+            await ctx.send(
+                f"Your private Spotify credentials are configured (updated {status[0]} UTC). "
+                "Use `/spotify user clear` and then `/spotify user setup` to replace them.",
+                ephemeral=bool(ctx.interaction),
+            )
+            return
         if ctx.interaction:
             await ctx.interaction.response.defer(ephemeral=True, thinking=True)
         credentials = await self.configure_personal_spotify(ctx)

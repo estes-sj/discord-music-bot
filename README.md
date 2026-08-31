@@ -78,15 +78,37 @@ Both slash-commands (`/`) and prefix commands (`.`) are supported. Prefix comman
 
   Spotify links do not stream Spotify audio directly. The bot reads Spotify metadata using credentials configured for this server, finds equivalent YouTube audio, and queues the successful matches.
 
-  The bot uses encrypted server Spotify credentials when they are configured. Configure, remove, or inspect them with `/spotify server setup`, `/spotify server clear` (Manage Server required), and `/spotify server status`. If a server has no usable credentials, the requester can choose a private **Use my Spotify** setup prompt. Private credentials are encrypted in the persistent `data/spotify.db` volume, belong only to that Discord user, and can be reused by that same user in other servers; they are never available to other members. Use `/spotify user setup`, `/spotify user status`, or `/spotify user clear` to configure, inspect, or remove a private connection.
+  Before either setup flow, set `SPOTIFY_REDIRECT_URI` in the bot's `.env` file and register that exact address in the Spotify Developer Dashboard. Spotify permits HTTP only for an explicit loopback IP, so use `http://127.0.0.1:8888/spotify-callback`, not `localhost` or a LAN/server address.
 
-  Track and album links use the server's Spotify application credentials. Spotify requires user authorization to enumerate playlist items. On the first playlist request, the bot DMs the requester an authorization link; after accepting it, copy the complete redirected URL from the browser address bar into the DM. The encrypted refresh token is then stored per guild and renewed automatically. Register `SPOTIFY_REDIRECT_URI` exactly in the Spotify Developer Dashboard before using playlists. Spotify forbids `localhost`; for the manual callback flow, register and configure `http://127.0.0.1:8888/spotify-callback` instead. The browser may show a connection error after redirecting, which is expected: copy that page's complete address into the DM.
+  ### Server Setup
+
+  Use this setup when the server should share one Spotify application connection. It requires **Manage Server**.
+
+  1. Go to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/) and login using your Spotify account. After logging in, you may need to revisit the [dashboard link](https://developer.spotify.com/dashboard/). Hit the "Create App" button or select an existing app and add the configured `SPOTIFY_REDIRECT_URI` (`http://127.0.0.1:8888/spotify-callback`) as its Redirect URI. Select **Web API** under APIs used. The "App name" and "App description" can be anything.
+  2. Run `/spotify server setup` on the Discord server with the bot.
+  3. In the bot DM, send the app's Client ID on the first line and Client Secret on the second line (as a single message).
+  4. Open the authorization link sent by the bot, approve access, and send the complete redirected callback URL to the bot DM (see below for details for getting the authorization link).
+
+  The credentials and refresh token are encrypted and stored for this server. Use `/spotify server status` to inspect the connection or `/spotify server clear` to remove it.
+
+  ### User Setup
+
+  Use this setup for a private Spotify connection that only you can use, including when a server has no usable Spotify connection or its playlist access is insufficient.
+
+  1. Go to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/) and login using your Spotify account. After logging in, you may need to revisit the [dashboard link](https://developer.spotify.com/dashboard/). Hit the "Create App" button or select an existing app and add the configured `SPOTIFY_REDIRECT_URI` (`http://127.0.0.1:8888/spotify-callback`) as its Redirect URI. Select **Web API** under APIs used. The "App name" and "App description" can be anything.
+  2. Run `/spotify user setup` on the Discord server with the bot.
+  3. In the bot DM, send the app's Client ID on the first line and Client Secret on the second line (as a single message).
+  4. Open the authorization link sent by the bot, approve access, and send the complete redirected callback URL to the bot DM (see below for details for getting the authorization link).
+
+  Your credentials and refresh token are encrypted in `data/spotify.db`, belong only to your Discord account, and can be used by you in other servers. Use `/spotify user status` to inspect the connection or `/spotify user clear` to remove it.
+
+  For either setup, the browser may show a connection error after redirecting; this is expected. Copy the complete `http://127.0.0.1:8888/spotify-callback?...` address from the browser bar into the bot DM. Do not post it in a server channel because it includes a short-lived authorization code.
 
   <div class="image-container" align="center">
       <img src="docs/spotify_developer_portal.png" alt="Spotify Developer Portal Example" width="70%"/>
   </div>
 
-  If the browser never displays the `http://127.0.0.1:8888/spotify-callback?...` URL, open its Developer Tools, select the **Network** tab, refresh the Spotify authorization page, click **Agree**, then copy the request URL whose path is `spotify-callback` into the bot DM. Do not post that URL in a server channel because it includes a short-lived authorization code.
+  If the browser never displays the callback URL, open its Developer Tools, select the **Network** tab, refresh the Spotify authorization page, click **Agree**, then copy the request URL whose path is `spotify-callback` into the bot DM.
 
   <div class="image-container" align="center">
       <img src="docs/spotify_setup.png" alt="Spotify Setup Example" width="70%"/>
@@ -95,9 +117,11 @@ Both slash-commands (`/`) and prefix commands (`.`) are supported. Prefix comman
       <img src="docs/spotify_callback_url.png" alt="Spotify Callback URL Example" width="70%"/>
   </div>
 
-  Spotify currently returns playlist items only for playlists owned by the authorizing account or where that account is a collaborator. When server authorization cannot access a playlist, the requester can use their private Spotify connection instead. A private connection does not grant other Discord users access to that Spotify account. Playlists with no options open a requester-only configuration modal. Position selections use the same 1-based, inclusive `POSITION[,POSITION|START-END...]` format and count behavior described above.
+  > [!IMPORTANT]
+  > Track and album links use the configured server connection when available. Spotify currently returns playlist items only for playlists owned by the authorizing account or where that account is a collaborator. When server authorization cannot access a playlist, the requester can use their private connection instead.
 
   ```text
+  # Various command examples:
   /play https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC
   /play https://open.spotify.com/album/1ATL5GLyefJaxhQzSPVrLX --count 8 --ordered
   /play https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M --count 10 --shuffle

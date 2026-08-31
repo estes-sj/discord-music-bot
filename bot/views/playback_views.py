@@ -64,7 +64,8 @@ class MusicControls(discord.ui.View):
             voters = " and ".join(names)
         else:
             voters = ", ".join(names[:-1]) + f", and {names[-1]}"
-        return f"{voters} {action} this song"
+        emoji = "👍" if action == "liked" else "👎"
+        return f"{emoji} {voters} {action} this song"
 
     async def update_rating_summary(self, interaction, like_user_ids, dislike_user_ids):
         if not interaction.message or not interaction.message.embeds:
