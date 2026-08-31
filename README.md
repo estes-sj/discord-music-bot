@@ -78,7 +78,7 @@ Both slash-commands (`/`) and prefix commands (`.`) are supported. Prefix comman
 
   Spotify links do not stream Spotify audio directly. The bot reads Spotify metadata using credentials configured for this server, finds equivalent YouTube audio, and queues the successful matches.
 
-  The bot uses encrypted server Spotify credentials when they are configured. Configure or remove them with `/spotify guild setup` and `/spotify guild clear` (Manage Server required), and inspect their status with `/spotify server status`. If a server has no usable credentials, the requester can choose a private **Use my Spotify** setup prompt. Private credentials are encrypted in the persistent `data/spotify.db` volume, belong only to that Discord user, and can be reused by that same user in other servers; they are never available to other members. Use `/spotify personal setup`, `/spotify personal status`, or `/spotify personal clear` to configure, inspect, or remove a private connection.
+  The bot uses encrypted server Spotify credentials when they are configured. Configure, remove, or inspect them with `/spotify server setup`, `/spotify server clear` (Manage Server required), and `/spotify server status`. If a server has no usable credentials, the requester can choose a private **Use my Spotify** setup prompt. Private credentials are encrypted in the persistent `data/spotify.db` volume, belong only to that Discord user, and can be reused by that same user in other servers; they are never available to other members. Use `/spotify user setup`, `/spotify user status`, or `/spotify user clear` to configure, inspect, or remove a private connection.
 
   Track and album links use the server's Spotify application credentials. Spotify requires user authorization to enumerate playlist items. On the first playlist request, the bot DMs the requester an authorization link; after accepting it, copy the complete redirected URL from the browser address bar into the DM. The encrypted refresh token is then stored per guild and renewed automatically. Register `SPOTIFY_REDIRECT_URI` exactly in the Spotify Developer Dashboard before using playlists. Spotify forbids `localhost`; for the manual callback flow, register and configure `http://127.0.0.1:8888/spotify-callback` instead. The browser may show a connection error after redirecting, which is expected: copy that page's complete address into the DM.
 
@@ -103,12 +103,12 @@ Both slash-commands (`/`) and prefix commands (`.`) are supported. Prefix comman
   /play https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M --count 10 --shuffle
   /play https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M --range 20-40 --count 15 --ordered
   /play https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M --range 1-3,5,7,9-10 --count 10 --ordered
-  /spotify guild setup
-  /spotify guild clear
+  /spotify server setup
+  /spotify server clear
   /spotify server status
-  /spotify personal setup
-  /spotify personal status
-  /spotify personal clear
+  /spotify user setup
+  /spotify user status
+  /spotify user clear
   ```
 
   The bot queues matches it finds and reports how many selected tracks could not be resolved. Spotify credentials, access tokens, and secrets are never sent to a server channel or logged.
