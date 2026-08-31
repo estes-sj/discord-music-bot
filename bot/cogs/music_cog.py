@@ -104,8 +104,11 @@ class Music(commands.Cog):
         return next((session for session in sessions if session.guild == guild_id), None)
 
     async def add_reaction(self, ctx, emoji):
-        if not ctx.interaction:
-            await ctx.message.add_reaction(emoji)
+        if ctx.interaction:
+            if not ctx.interaction.response.is_done():
+                await ctx.send(emoji, ephemeral=True)
+            return
+        await ctx.message.add_reaction(emoji)
 
     async def enforce_command_cooldown(self, ctx, command_name, cooldown_seconds):
         key = (ctx.guild.id, ctx.author.id, command_name)
@@ -2350,6 +2353,7 @@ class Music(commands.Cog):
                     session.q.current_music.ytube,
                     session.q.current_music.duration,
                 )
+                await controls.add_historical_rating_summary(embed, ctx.guild)
                 session.now_playing_message = await ctx.send(embed=embed, view=controls)
                 controls.message = session.now_playing_message
                 session.now_playing_track_url = session.q.current_music.ytube
@@ -2783,6 +2787,7 @@ class Music(commands.Cog):
             current_music.duration,
             session.q.current_position(),
         )
+        await controls.add_historical_rating_summary(embed, ctx.guild)
         now_playing_message = await ctx.send(embed=embed, view=controls)
         controls.message = now_playing_message
         session.now_playing_messages[id(now_playing_message)] = (
