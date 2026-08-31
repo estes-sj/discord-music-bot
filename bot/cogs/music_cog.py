@@ -2827,7 +2827,7 @@ async def get_dominant_color(image_url):
         image = image.convert("RGB")  # Ensure it's in RGB format
         image = image.resize((50, 50))  # Reduce size for faster processing
 
-        pixels = list(image.getdata())  # Get pixel data
+        pixels = list(image.get_flattened_data())  # Get pixel data
         avg_color = tuple(sum(x) // len(x) for x in zip(*pixels))  # Average color
 
         return (avg_color[0] << 16) + (avg_color[1] << 8) + avg_color[2]  # Convert RGB to int
