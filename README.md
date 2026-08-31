@@ -422,14 +422,34 @@ Once the bot is running, it will appear online in your Discord server and be abl
 ## Configuration
 
 ### Environment Variables
+
+#### Required
+
 | Variable | Default | Example | Description |
 | --- | --- | --- | --- |
 | `DISCORD_TOKEN` | None | `DISCORD_TOKEN=your-bot-token` | Bot token from the Discord Developer Portal. |
+
+#### Guild-Configurable Defaults
+
+These values are the defaults for new guilds. A member with **Manage Server** can change them per guild with `/config`; once saved, that guild's stored configuration overrides these environment values.
+
+| Variable | Default | Example | Description |
+| --- | --- | --- | --- |
 | `COMMAND_PREFIX` | `.` | `COMMAND_PREFIX=!` | Prefix used for bot commands and the displayed help activity. |
+| `AUTO_DISCONNECT_EMPTY_CHANNEL_ENABLED` | `true` | `AUTO_DISCONNECT_EMPTY_CHANNEL_ENABLED=false` | Whether the bot leaves when it is the only member left in its voice channel. |
+| `AUTO_DISCONNECT_EMPTY_CHANNEL_MINUTES` | `0` | `AUTO_DISCONNECT_EMPTY_CHANNEL_MINUTES=5` | Minutes to wait after the bot is alone before leaving. `0` leaves at the next check. |
+| `AUTO_DISCONNECT_INACTIVITY_ENABLED` | `true` | `AUTO_DISCONNECT_INACTIVITY_ENABLED=false` | Whether the bot leaves after playback inactivity. |
+| `AUTO_DISCONNECT_INACTIVITY_MINUTES` | `10` | `AUTO_DISCONNECT_INACTIVITY_MINUTES=30` | Minutes without playback before the bot leaves. |
+| `PLAYLIST_MAX_TRACKS` | `20` | `PLAYLIST_MAX_TRACKS=50` | Maximum number of tracks accepted from an album or playlist import. |
+| `PLAYLIST_DEFAULT_TRACKS` | `20` | `PLAYLIST_DEFAULT_TRACKS=10` | Track count used by the playlist configuration modal and imports without an explicit count. |
+| `PLAYLIST_DEFAULT_SHUFFLE` | `false` | `PLAYLIST_DEFAULT_SHUFFLE=true` | Whether playlist imports shuffle eligible tracks by default. |
+
+#### Bot-Wide Behavior and Safeguards
+
+| Variable | Default | Example | Description |
+| --- | --- | --- | --- |
 | `SLASH_COMMANDS_ENABLED` | `true` | `SLASH_COMMANDS_ENABLED=false` | Makes slash commands available to guilds. A value of `false` cannot be overridden by guild configuration. |
-| `PREFIX_COMMANDS_ENABLED` | `true` | `PREFIX_COMMANDS_ENABLED=false` | Makes prefix commands available to guilds. A value of `false` cannot be overridden by guild configuration. At least one command mode must be enabled. |
-| `LOG_MAX_BYTES` | `8388608` | `LOG_MAX_BYTES=16777216` | Maximum size, in bytes, of each `logs/discord.log` file before rotation. |
-| `LOG_BACKUP_COUNT` | `5` | `LOG_BACKUP_COUNT=10` | Number of rotated `discord.log` files to retain. |
+| `PREFIX_COMMANDS_ENABLED` | `true` | `PREFIX_COMMANDS_ENABLED=false` | Makes prefix commands available to guilds. A value of `false` cannot be overridden by guild configuration. At least one mode must be enabled. |
 | `YTDLP_TIMEOUT_SECONDS` | `45` | `YTDLP_TIMEOUT_SECONDS=60` | Maximum seconds to wait for one yt-dlp source-resolution operation before returning a safe failure. |
 | `PLAY_COOLDOWN_SECONDS` | `0` | `PLAY_COOLDOWN_SECONDS=10` | Per-user, per-server cooldown for `/play` and the prefix equivalent. `0` disables this cooldown. |
 | `SEARCH_COOLDOWN_SECONDS` | `1` | `SEARCH_COOLDOWN_SECONDS=5` | Per-user, per-server cooldown for `/search` and the prefix equivalent. `0` disables this cooldown. |
@@ -441,21 +461,32 @@ Once the bot is running, it will appear online in your Discord server and be abl
 | `SAVED_PLAYLIST_RESOLUTION_CONCURRENCY` | `3` | `SAVED_PLAYLIST_RESOLUTION_CONCURRENCY=5` | Maximum simultaneous YouTube resolutions when queueing a saved playlist. |
 | `MAX_PLAYLISTS_PER_USER` | `3` | `MAX_PLAYLISTS_PER_USER=5` | Maximum personal playlists a Discord user can create. |
 | `MAX_SONGS_PER_USER` | `50` | `MAX_SONGS_PER_USER=100` | Maximum tracks a Discord user can save across all of their personal playlists. |
-| `GUILD_CONFIG_DATABASE_PATH` | `/app/data/guild_config.db` | `GUILD_CONFIG_DATABASE_PATH=/app/data/guild_config.db` | SQLite database for per-server music configuration overrides. |
-| `AUTO_DISCONNECT_EMPTY_CHANNEL_ENABLED` | `true` | `AUTO_DISCONNECT_EMPTY_CHANNEL_ENABLED=false` | Whether the bot leaves when it is the only member left in its voice channel. |
-| `AUTO_DISCONNECT_EMPTY_CHANNEL_MINUTES` | `0` | `AUTO_DISCONNECT_EMPTY_CHANNEL_MINUTES=5` | Minutes to wait after the bot is alone before leaving. `0` leaves at the next check. |
-| `AUTO_DISCONNECT_INACTIVITY_ENABLED` | `true` | `AUTO_DISCONNECT_INACTIVITY_ENABLED=false` | Whether the bot leaves after playback inactivity. |
-| `AUTO_DISCONNECT_INACTIVITY_MINUTES` | `10` | `AUTO_DISCONNECT_INACTIVITY_MINUTES=30` | Minutes without playback before the bot leaves. |
-| `YTDLP_UPDATE_SCHEDULE` | `0 4 * * *` | `YTDLP_UPDATE_SCHEDULE="0 8 * * *"` | Cron expression for yt-dlp updates. Output is written to `logs/yt-dlp-update.log`. |
-| `SONG_STATS_DATABASE_PATH` | `/app/data/song_stats.db` | `SONG_STATS_DATABASE_PATH=/app/data/song_stats.db` | SQLite database for persistent, guild-scoped song play counts and ratings. |
-| `USER_PLAYLIST_DATABASE_PATH` | `/app/data/user_playlists.db` | `USER_PLAYLIST_DATABASE_PATH=/app/data/user_playlists.db` | SQLite database for persistent personal playlists, shared by the user's bot account across servers. |
-| `SPOTIFY_CREDENTIAL_ENCRYPTION_KEY` | None | `SPOTIFY_CREDENTIAL_ENCRYPTION_KEY=...` | Fernet key used to encrypt per-guild Spotify Client IDs and Client Secrets at rest. Generate one with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Required for Spotify support. |
-| `SPOTIFY_DATABASE_PATH` | `/app/data/spotify.db` | `SPOTIFY_DATABASE_PATH=/app/data/spotify.db` | SQLite database containing encrypted guild credential records. Mount `/app/data` to retain it across container replacement. |
-| `PLAYLIST_MAX_TRACKS` | `20` | `PLAYLIST_MAX_TRACKS=50` | Maximum number of tracks accepted from an album or playlist import. |
-| `PLAYLIST_DEFAULT_TRACKS` | `20` | `PLAYLIST_DEFAULT_TRACKS=10` | Track count used by the playlist configuration modal and imports without an explicit count. |
-| `PLAYLIST_DEFAULT_SHUFFLE` | `false` | `PLAYLIST_DEFAULT_SHUFFLE=true` | Whether playlist imports shuffle eligible tracks by default. |
+
+#### Spotify Integration
+
+| Variable | Default | Example | Description |
+| --- | --- | --- | --- |
+| `SPOTIFY_CREDENTIAL_ENCRYPTION_KEY` | None | `SPOTIFY_CREDENTIAL_ENCRYPTION_KEY=...` | Fernet key used to encrypt guild and personal Spotify credentials at rest. Generate one with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Required for Spotify support. |
 | `SPOTIFY_MARKET` | `US` | `SPOTIFY_MARKET=CA` | Two-letter country code used to determine Spotify catalog availability for the Client Credentials flow. Set this to the bot's intended region. |
 | `SPOTIFY_REDIRECT_URI` | None | `SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/spotify-callback` | Exact callback URL registered in the Spotify Developer Dashboard for one-time playlist authorization. Spotify permits HTTP only for an explicit loopback IP, not `localhost` or a LAN/server IP. The authorizing user copies the redirected URL to the bot's DM. Required for playlists. |
+
+#### Persistent Storage
+
+| Variable | Default | Example | Description |
+| --- | --- | --- | --- |
+| `SONG_STATS_DATABASE_PATH` | `/app/data/song_stats.db` | `SONG_STATS_DATABASE_PATH=/app/data/song_stats.db` | SQLite database for persistent, guild-scoped song play counts and ratings. |
+| `USER_PLAYLIST_DATABASE_PATH` | `/app/data/user_playlists.db` | `USER_PLAYLIST_DATABASE_PATH=/app/data/user_playlists.db` | SQLite database for persistent personal playlists, shared by the user's bot account across servers. |
+| `GUILD_CONFIG_DATABASE_PATH` | `/app/data/guild_config.db` | `GUILD_CONFIG_DATABASE_PATH=/app/data/guild_config.db` | SQLite database for per-server music configuration overrides. |
+| `SPOTIFY_DATABASE_PATH` | `/app/data/spotify.db` | `SPOTIFY_DATABASE_PATH=/app/data/spotify.db` | SQLite database containing encrypted guild and personal Spotify credential records. Mount `/app/data` to retain it across container replacement. |
+
+#### System Logging and Maintenance
+
+| Variable | Default | Example | Description |
+| --- | --- | --- | --- |
+| `TZ` | `UTC` | `TZ=America/New_York` | IANA time zone used by the server clock and update scheduler. Invalid values prevent startup. |
+| `LOG_MAX_BYTES` | `8388608` | `LOG_MAX_BYTES=16777216` | Maximum size, in bytes, of each `logs/discord.log` file before rotation. |
+| `LOG_BACKUP_COUNT` | `5` | `LOG_BACKUP_COUNT=10` | Number of rotated `discord.log` files to retain. |
+| `YTDLP_UPDATE_SCHEDULE` | `0 4 * * *` | `YTDLP_UPDATE_SCHEDULE="0 8 * * *"` | Cron expression for yt-dlp updates. Output is written to `logs/yt-dlp-update.log`. |
 
 Server administrators can run `.config` or `/config` to set a server-specific command prefix, command modes, auto-disconnect policies, and playlist defaults. Guilds can disable either prefix or slash commands, but must keep one mode enabled. `SLASH_COMMANDS_ENABLED=false` or `PREFIX_COMMANDS_ENABLED=false` is an operator-level restriction and prevents guild administrators from re-enabling that mode. These overrides are stored in `GUILD_CONFIG_DATABASE_PATH`; environment values remain the defaults for servers without an override.
 

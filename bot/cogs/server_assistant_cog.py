@@ -19,7 +19,7 @@ class ServerAssistant(commands.Cog):
     @commands.hybrid_command()
     async def time(self, ctx):
         """Show the current server time."""
-        now = datetime.now()
+        now = datetime.now(self.bot.time_zone)
         await ctx.send(f'The current time is {now}')
         return
 

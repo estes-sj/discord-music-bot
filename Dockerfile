@@ -19,6 +19,7 @@ RUN apk add --no-cache \
     git \
     curl \
     unzip \
+    tzdata \
     && pip install --upgrade pip  # Make sure pip is up to date
 
 # Set the working directory in the container
@@ -35,7 +36,8 @@ RUN pip install --upgrade pip \
 COPY . .
 
 # Set the PYTHONPATH to include the bot directory
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app \
+    TZ=UTC
 
 # Configure the yt-dlp update cron job before starting the bot.
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint

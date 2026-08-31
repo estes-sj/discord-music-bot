@@ -4,6 +4,7 @@ import sqlite3
 
 import logging
 import logging.handlers
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 # Third-party dependencies
 from dotenv import load_dotenv
@@ -43,6 +44,14 @@ def environment_nonnegative_integer(name, default, minimum=0):
     if value < minimum:
         raise ValueError(f"{name} must be at least {minimum}")
     return value
+
+
+def environment_timezone(name, default):
+    value = os.getenv(name, default).strip() or default
+    try:
+        return ZoneInfo(value)
+    except ZoneInfoNotFoundError as error:
+        raise ValueError(f"{name} must be a valid IANA time zone") from error
 
 # Bot intents configuration
 intents = discord.Intents(
@@ -84,6 +93,7 @@ client = ConfigurableBot(
 
 # Load bot token from environment variables
 TOKEN = os.getenv("DISCORD_TOKEN")
+client.time_zone = environment_timezone("TZ", "UTC")
 client.guild_config_defaults = {
     "command_prefix": COMMAND_PREFIX,
     "slash_commands_enabled": environment_boolean("SLASH_COMMANDS_ENABLED", True),
