@@ -105,6 +105,7 @@ client.guild_config_defaults = {
     "playlist_max_tracks": max(1, int(os.getenv("PLAYLIST_MAX_TRACKS", "20"))),
     "playlist_default_tracks": max(1, int(os.getenv("PLAYLIST_DEFAULT_TRACKS", "20"))),
     "playlist_default_shuffle": os.getenv("PLAYLIST_DEFAULT_SHUFFLE", "false").lower() == "true",
+    "rating_history_enabled": environment_boolean("RATING_HISTORY_ENABLED", True),
 }
 client.ytdlp_timeout_seconds = environment_nonnegative_integer("YTDLP_TIMEOUT_SECONDS", 45, minimum=1)
 client.play_cooldown_seconds = environment_nonnegative_integer("PLAY_COOLDOWN_SECONDS", 0)

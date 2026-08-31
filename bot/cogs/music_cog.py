@@ -408,6 +408,7 @@ class Music(commands.Cog):
             completed_track.duration,
             start_position,
         )
+        await controls.add_historical_rating_summary(embed, ctx.guild)
         if (
             session.now_playing_message
             and session.now_playing_track_url == completed_track.ytube

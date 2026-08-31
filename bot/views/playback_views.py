@@ -67,10 +67,10 @@ class MusicControls(discord.ui.View):
         emoji = "👍" if action == "liked" else "👎"
         return f"{emoji} {voters} {action} this song"
 
-    async def update_rating_summary(self, interaction, like_user_ids, dislike_user_ids):
-        if not interaction.message or not interaction.message.embeds:
-            return
-        guild = interaction.guild
+    def rating_summary_text(self, guild, like_user_ids, dislike_user_ids):
+        if not self.music_cog.get_guild_config(self.guild_id)["rating_history_enabled"]:
+            return ""
+
         def resolve_members(user_ids):
             return [
                 guild.get_member(user_id) or discord.Object(id=user_id)
@@ -82,8 +82,38 @@ class MusicControls(discord.ui.View):
             lines.append(self.rating_summary_line(resolve_members(like_user_ids), "liked"))
         if dislike_user_ids:
             lines.append(self.rating_summary_line(resolve_members(dislike_user_ids), "disliked"))
+        return "\n".join(lines)
+
+    async def add_historical_rating_summary(self, embed, guild):
+        store = self.music_cog.song_stats_store
+        if not store or not self.music_cog.get_guild_config(self.guild_id)["rating_history_enabled"]:
+            return
+        try:
+            like_user_ids = await asyncio.to_thread(store.rating_users, self.guild_id, self.track_url, 1)
+            dislike_user_ids = await asyncio.to_thread(store.rating_users, self.guild_id, self.track_url, -1)
+        except Exception as error:
+            logger.warning("Guild %s: failed to load historical song ratings: %s", self.guild_id, error)
+            return
+        summary = self.rating_summary_text(guild, like_user_ids, dislike_user_ids)
+        logger.debug(
+            "Guild %s: loaded historical ratings for %s (likes=%s, dislikes=%s)",
+            self.guild_id,
+            self.track_url,
+            len(like_user_ids),
+            len(dislike_user_ids),
+        )
+        if summary:
+            embed.set_footer(text=summary)
+
+    async def update_rating_summary(self, interaction, like_user_ids, dislike_user_ids):
+        if not interaction.message or not interaction.message.embeds:
+            return
         embed = interaction.message.embeds[0].copy()
-        embed.set_footer(text="\n".join(lines))
+        summary = self.rating_summary_text(interaction.guild, like_user_ids, dislike_user_ids)
+        if summary:
+            embed.set_footer(text=summary)
+        else:
+            embed.remove_footer()
         await interaction.message.edit(embed=embed, view=self)
 
     async def rate_current_track(self, interaction, rating):

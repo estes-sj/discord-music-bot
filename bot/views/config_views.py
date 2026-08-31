@@ -49,7 +49,11 @@ class GuildConfigModal(discord.ui.Modal, title="Music configuration"):
     command_modes = discord.ui.TextInput(label="Commands: slash enabled, prefix enabled", placeholder="true, true", max_length=20)
     empty_channel = discord.ui.TextInput(label="Empty channel: enabled, minutes", placeholder="true, 0", max_length=20)
     inactivity = discord.ui.TextInput(label="Inactivity: enabled, minutes", placeholder="true, 10", max_length=20)
-    playlist = discord.ui.TextInput(label="Playlist: maximum, default, shuffle", placeholder="20, 20, false", max_length=30)
+    playlist = discord.ui.TextInput(
+        label="Playlist: max, default, shuffle, ratings",
+        placeholder="20, 20, false, true",
+        max_length=40,
+    )
 
     def __init__(self, music_cog, guild_id):
         super().__init__()
@@ -65,7 +69,8 @@ class GuildConfigModal(discord.ui.Modal, title="Music configuration"):
         self.inactivity.default = f"{str(config['inactivity_enabled']).lower()}, {config['inactivity_minutes']}"
         self.playlist.default = (
             f"{config['playlist_max_tracks']}, {config['playlist_default_tracks']}, "
-            f"{str(config['playlist_default_shuffle']).lower()}"
+            f"{str(config['playlist_default_shuffle']).lower()}, "
+            f"{str(config['rating_history_enabled']).lower()}"
         )
 
     async def on_submit(self, interaction):
@@ -89,11 +94,12 @@ class GuildConfigModal(discord.ui.Modal, title="Music configuration"):
             empty_enabled, empty_minutes = parse_policy(self.empty_channel.value, "Empty channel")
             inactivity_enabled, inactivity_minutes = parse_policy(self.inactivity.value, "Inactivity")
             playlist_values = [value.strip() for value in self.playlist.value.split(",")]
-            if len(playlist_values) != 3:
-                raise ValueError("Playlist must use maximum,default,true/false")
+            if len(playlist_values) != 4:
+                raise ValueError("Playlist must use maximum,default,shuffle,ratings")
             playlist_max_tracks = int(playlist_values[0])
             playlist_default_tracks = int(playlist_values[1])
             playlist_default_shuffle = parse_boolean(playlist_values[2])
+            rating_history_enabled = parse_boolean(playlist_values[3])
             if playlist_max_tracks < 1 or playlist_default_tracks < 1:
                 raise ValueError("Playlist track counts must be at least 1")
             if playlist_default_tracks > playlist_max_tracks:
@@ -113,6 +119,7 @@ class GuildConfigModal(discord.ui.Modal, title="Music configuration"):
             "playlist_max_tracks": playlist_max_tracks,
             "playlist_default_tracks": playlist_default_tracks,
             "playlist_default_shuffle": playlist_default_shuffle,
+            "rating_history_enabled": rating_history_enabled,
         }
         await asyncio.to_thread(self.music_cog.save_guild_config, self.guild_id, config, interaction.user.id)
         await interaction.response.send_message("Guild music configuration saved.", ephemeral=True)

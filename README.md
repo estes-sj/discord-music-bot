@@ -467,6 +467,7 @@ These values are the defaults for new guilds. A member with **Manage Server** ca
 | `PLAYLIST_MAX_TRACKS` | `20` | `PLAYLIST_MAX_TRACKS=50` | Maximum number of tracks accepted from an album or playlist import. |
 | `PLAYLIST_DEFAULT_TRACKS` | `20` | `PLAYLIST_DEFAULT_TRACKS=10` | Track count used by the playlist configuration modal and imports without an explicit count. |
 | `PLAYLIST_DEFAULT_SHUFFLE` | `false` | `PLAYLIST_DEFAULT_SHUFFLE=true` | Whether playlist imports shuffle eligible tracks by default. |
+| `RATING_HISTORY_ENABLED` | `true` | `RATING_HISTORY_ENABLED=false` | Whether now-playing messages show the song's historical likes and dislikes. The fourth value in the `/config` playlist field overrides this per server. |
 
 #### Bot-Wide Behavior and Safeguards
 
@@ -512,7 +513,7 @@ These values are the defaults for new guilds. A member with **Manage Server** ca
 | `LOG_BACKUP_COUNT` | `5` | `LOG_BACKUP_COUNT=10` | Number of rotated `discord.log` files to retain. |
 | `YTDLP_UPDATE_SCHEDULE` | `0 4 * * *` | `YTDLP_UPDATE_SCHEDULE="0 8 * * *"` | Cron expression for yt-dlp updates. Output is written to `logs/yt-dlp-update.log`. |
 
-Server administrators can run `.config` or `/config` to set a server-specific command prefix, command modes, auto-disconnect policies, and playlist defaults. Guilds can disable either prefix or slash commands, but must keep one mode enabled. `SLASH_COMMANDS_ENABLED=false` or `PREFIX_COMMANDS_ENABLED=false` is an operator-level restriction and prevents guild administrators from re-enabling that mode. These overrides are stored in `GUILD_CONFIG_DATABASE_PATH`; environment values remain the defaults for servers without an override.
+Server administrators can run `.config` or `/config` to set a server-specific command prefix, command modes, auto-disconnect policies, playlist defaults, and historical rating visibility. The playlist field uses `maximum, default, shuffle, ratings`, such as `20, 20, false, true`. Guilds can disable either prefix or slash commands, but must keep one mode enabled. `SLASH_COMMANDS_ENABLED=false` or `PREFIX_COMMANDS_ENABLED=false` is an operator-level restriction and prevents guild administrators from re-enabling that mode. These overrides are stored in `GUILD_CONFIG_DATABASE_PATH`; environment values remain the defaults for servers without an override.
 
 ## Troubleshooting
 

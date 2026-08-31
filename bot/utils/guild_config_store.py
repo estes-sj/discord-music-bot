@@ -28,6 +28,7 @@ class GuildConfigStore:
                     playlist_max_tracks INTEGER NOT NULL CHECK (playlist_max_tracks >= 1),
                     playlist_default_tracks INTEGER NOT NULL CHECK (playlist_default_tracks >= 1),
                     playlist_default_shuffle INTEGER NOT NULL CHECK (playlist_default_shuffle IN (0, 1)),
+                    rating_history_enabled INTEGER NOT NULL DEFAULT 1 CHECK (rating_history_enabled IN (0, 1)),
                     updated_by INTEGER NOT NULL,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
@@ -47,6 +48,11 @@ class GuildConfigStore:
                     "ALTER TABLE guild_config ADD COLUMN prefix_commands_enabled INTEGER NOT NULL DEFAULT 1 "
                     "CHECK (prefix_commands_enabled IN (0, 1))"
                 )
+            if "rating_history_enabled" not in columns:
+                connection.execute(
+                    "ALTER TABLE guild_config ADD COLUMN rating_history_enabled INTEGER NOT NULL DEFAULT 1 "
+                    "CHECK (rating_history_enabled IN (0, 1))"
+                )
 
     def get(self, guild_id, defaults):
         with self.connect() as connection:
@@ -55,7 +61,7 @@ class GuildConfigStore:
                 SELECT command_prefix, slash_commands_enabled, prefix_commands_enabled,
                     empty_channel_enabled, empty_channel_minutes, inactivity_enabled,
                     inactivity_minutes, playlist_max_tracks, playlist_default_tracks,
-                    playlist_default_shuffle
+                    playlist_default_shuffle, rating_history_enabled
                 FROM guild_config WHERE guild_id = ?
                 """,
                 (guild_id,),
@@ -73,6 +79,7 @@ class GuildConfigStore:
             "playlist_max_tracks": row[7],
             "playlist_default_tracks": row[8],
             "playlist_default_shuffle": bool(row[9]),
+            "rating_history_enabled": bool(row[10]),
         }
         if not config["slash_commands_enabled"] and not config["prefix_commands_enabled"]:
             config["slash_commands_enabled"] = defaults["slash_commands_enabled"]
@@ -87,8 +94,9 @@ class GuildConfigStore:
                     guild_id, command_prefix, slash_commands_enabled, prefix_commands_enabled,
                     empty_channel_enabled, empty_channel_minutes,
                     inactivity_enabled, inactivity_minutes, playlist_max_tracks,
-                    playlist_default_tracks, playlist_default_shuffle, updated_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    playlist_default_tracks, playlist_default_shuffle,
+                    rating_history_enabled, updated_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(guild_id) DO UPDATE SET
                     command_prefix = excluded.command_prefix,
                     slash_commands_enabled = excluded.slash_commands_enabled,
@@ -100,6 +108,7 @@ class GuildConfigStore:
                     playlist_max_tracks = excluded.playlist_max_tracks,
                     playlist_default_tracks = excluded.playlist_default_tracks,
                     playlist_default_shuffle = excluded.playlist_default_shuffle,
+                    rating_history_enabled = excluded.rating_history_enabled,
                     updated_by = excluded.updated_by,
                     updated_at = CURRENT_TIMESTAMP
                 """,
@@ -115,6 +124,7 @@ class GuildConfigStore:
                     config["playlist_max_tracks"],
                     config["playlist_default_tracks"],
                     config["playlist_default_shuffle"],
+                    config["rating_history_enabled"],
                     updated_by,
                 ),
             )
