@@ -90,6 +90,20 @@ class SongStatsStore:
             ).fetchone()
         return likes, dislikes
 
+    def rating_users(self, guild_id, track_url, rating):
+        with self.connect() as connection:
+            return [
+                row[0] for row in connection.execute(
+                    """
+                    SELECT user_id
+                    FROM song_ratings
+                    WHERE guild_id = ? AND track_url = ? AND rating = ?
+                    ORDER BY rated_at, user_id
+                    """,
+                    (guild_id, track_url, rating),
+                ).fetchall()
+            ]
+
     def top_played(self, guild_id, limit=20):
         return self._query(guild_id, "song_stats.play_count DESC, song_stats.last_played_at DESC", limit)
 

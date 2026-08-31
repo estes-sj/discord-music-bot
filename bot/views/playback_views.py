@@ -49,6 +49,42 @@ class MusicControls(discord.ui.View):
             return False
         return True
 
+    @staticmethod
+    def rating_summary_line(members, action):
+        displayed_members = members[:3]
+        names = [
+            getattr(member, "display_name", f"<@{member.id}>")
+            for member in displayed_members
+        ]
+        if len(members) > len(displayed_members):
+            names.append(f"{len(members) - len(displayed_members)}+ others")
+        if len(names) == 1:
+            voters = names[0]
+        elif len(names) == 2:
+            voters = " and ".join(names)
+        else:
+            voters = ", ".join(names[:-1]) + f", and {names[-1]}"
+        return f"{voters} {action} this song"
+
+    async def update_rating_summary(self, interaction, like_user_ids, dislike_user_ids):
+        if not interaction.message or not interaction.message.embeds:
+            return
+        guild = interaction.guild
+        def resolve_members(user_ids):
+            return [
+                guild.get_member(user_id) or discord.Object(id=user_id)
+                for user_id in user_ids
+            ]
+
+        lines = []
+        if like_user_ids:
+            lines.append(self.rating_summary_line(resolve_members(like_user_ids), "liked"))
+        if dislike_user_ids:
+            lines.append(self.rating_summary_line(resolve_members(dislike_user_ids), "disliked"))
+        embed = interaction.message.embeds[0].copy()
+        embed.set_footer(text="\n".join(lines))
+        await interaction.message.edit(embed=embed, view=self)
+
     async def rate_current_track(self, interaction, rating):
         session = self.get_session()
         store = self.music_cog.song_stats_store
@@ -63,12 +99,16 @@ class MusicControls(discord.ui.View):
                 store.set_rating, self.guild_id, self.track_url, interaction.user.id, rating
             )
             likes, dislikes = await asyncio.to_thread(store.rating_summary, self.guild_id, self.track_url)
+            like_user_ids = await asyncio.to_thread(store.rating_users, self.guild_id, self.track_url, 1)
+            dislike_user_ids = await asyncio.to_thread(store.rating_users, self.guild_id, self.track_url, -1)
         except Exception as error:
             logger.warning("Guild %s: failed to save song rating: %s", self.guild_id, error)
             await interaction.response.send_message("Song rating could not be saved.", ephemeral=True)
             return
+        await interaction.response.defer(ephemeral=True)
+        await self.update_rating_summary(interaction, like_user_ids, dislike_user_ids)
         action = "removed your rating" if resulting_rating == 0 else ("liked" if resulting_rating == 1 else "disliked")
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"You {action} this song. Likes: {likes} | Dislikes: {dislikes}", ephemeral=True
         )
 
