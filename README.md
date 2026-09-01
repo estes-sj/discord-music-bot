@@ -9,7 +9,31 @@ Supports multiple tracks, queue management, and interactive selection.
 
 The main tools used are `yt-dlp` for pulling YouTube data and [FFmpeg](https://www.ffmpeg.org/) for audio streaming.
 
-I used cogs since I adapt this code onto other bots that I have. It makes it a bit more modular since I can simply add the `Music` cog to a pre-existing bot.
+
+## Table of Contents
+
+- [Features](#features)
+- [Usage and Commands](#usage)
+  - [Interactions](#interactions)
+- [Installation Steps](#installation-steps)
+  - [Creating a bot](#creating-a-bot)
+  - [Running through Docker](#running-through-docker)
+    - [Option 1: Pull the published image](#option-1-pull-the-published-image)
+    - [Option 2: Build from source](#option-2-build-from-source)
+- [Configuration](#configuration)
+  - [Environment Variables](#environment-variables)
+    - [Required](#required)
+    - [Guild-Configurable Defaults](#guild-configurable-defaults)
+    - [Bot-Wide Behavior and Safeguards](#bot-wide-behavior-and-safeguards)
+    - [Spotify Integration](#spotify-integration)
+    - [Last.fm Radio](#lastfm-radio)
+    - [Persistent Storage](#persistent-storage)
+    - [System Logging and Maintenance](#system-logging-and-maintenance)
+- [Troubleshooting](#troubleshooting)
+  - [Stuttering audio](#stuttering-audio)
+- [Audio Quality Limitations](#audio-quality-limitations)
+- [Bugs](#bugs)
+- [License](#license)
 
 ## Features
 See [Usage](#usage) for more information and examples on specific commands and features. Some of the music bot's features include:
@@ -47,7 +71,7 @@ Both slash-commands (`/`) and prefix commands (`.`) are supported. Prefix comman
   .radio Radiohead
   ```
 
-  The bot operator must enable and configure Last.fm. A server administrator can then enable or disable radio for that server with `/config`.
+  The bot operator must enable and configure Last.fm. A server administrator can then enable or disable radio for that server with `/config`. API credentials can be obtained from https://www.last.fm/api/account/create for Last.fm.
 </details>
 
 <details>
@@ -132,8 +156,12 @@ Both slash-commands (`/`) and prefix commands (`.`) are supported. Prefix comman
       <img src="docs/spotify_callback_url.png" alt="Spotify Callback URL Example" width="70%"/>
   </div>
 
-  > [!IMPORTANT]
-  > Track and album links use the configured server connection when available. Spotify currently returns playlist items only for playlists owned by the authorizing account or where that account is a collaborator. When server authorization cannot access a playlist, the requester can use their private connection instead.
+  <blockquote>
+    <strong>❗ IMPORTANT</strong><br><br>
+    Track and album links use the configured server connection when available.
+    Spotify currently returns playlist items only for playlists owned by the
+    authorizing account or where that account is a collaborator.
+  </blockquote>
 
   ```text
   # Various command examples:
@@ -563,8 +591,6 @@ docker compose exec -T discord-music-bot yt-dlp --version
 The bot streams the best audio format that `yt-dlp` can obtain from the selected YouTube result, but it cannot improve the quality of that source. YouTube uploads may already be low bitrate, dynamically compressed, clipped, or distorted. This is most noticeable in music with sharp, loud transients or a wide dynamic range, such as orchestral cannon shots, percussion-heavy tracks, and bass-heavy music.
 
 Discord voice channels also impose a bitrate limit and transmit audio with Opus. The available channel bitrate depends on the server's boost level, so listeners may hear additional compression artifacts or reduced detail compared with the original upload. Use the highest voice-channel bitrate your server allows and try a different YouTube recording or remaster when a specific track sounds distorted.
-
-Seeking restarts the stream at the selected position; it may briefly buffer, but it does not increase or intentionally reduce the selected source quality.
 
 ## Bugs
 Please use the [bug report template](.github/ISSUE_TEMPLATE/bug_report.yml) for reproducible problems. Review [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Do not report vulnerabilities or expose secrets in a public issue; follow [SECURITY.md](SECURITY.md) instead.

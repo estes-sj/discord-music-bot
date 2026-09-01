@@ -2,7 +2,7 @@ FROM python:3.14-alpine
 
 # Labels
 LABEL org.opencontainers.image.title="discord-music-bot" \
-      org.opencontainers.image.description="A Discord music bot that uses discord.py, youtube_dl, and FFmpeg for audio streaming" \
+      org.opencontainers.image.description="A Discord music bot that uses discord.py, yt-dlp, and FFmpeg for audio streaming" \
       org.opencontainers.image.url="https://hub.docker.com/repository/docker/estessj/discord-music-bot" \
       org.opencontainers.image.source="https://github.com/estes-sj/discord-music-bot" \
       org.opencontainers.image.licenses="GPL-3.0-or-later" \

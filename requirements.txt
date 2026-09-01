@@ -5,12 +5,11 @@ discord.py-pagination
 
 # Utility and external libraries
 requests
-openai
 yt-dlp
 python-dotenv
 pillow
 cryptography
-pylast==7.1.0
+pylast
 
 # Asynchronous support
 asyncio

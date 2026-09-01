@@ -19,6 +19,7 @@ from PIL import Image
 
 import bot.utils.custom_paginator as Paginator
 import bot.utils.music_utilities as Utilities
+from bot.utils.command_references import format_command_reference, load_guild_config
 from bot.views.playback_views import MusicControls
 from bot.views.config_views import GuildConfigLauncher, GuildConfigModal
 from bot.views.playlist_views import (
@@ -103,13 +104,15 @@ class Music(commands.Cog):
 
 
     def get_guild_config(self, guild_id):
-        defaults = self.bot.guild_config_defaults
-        if not self.guild_config_store:
-            return defaults.copy()
-        return self.guild_config_store.get(guild_id, defaults)
+        return load_guild_config(
+            self.guild_config_store,
+            guild_id,
+            self.bot.guild_config_defaults,
+        )
 
-    def get_command_prefix(self, guild_id):
-        return self.get_guild_config(guild_id)["command_prefix"]
+    def command_reference(self, guild_id, slash_command, prefix_command=None):
+        config = self.get_guild_config(guild_id)
+        return format_command_reference(config, slash_command, prefix_command)
 
     def save_guild_config(self, guild_id, config, updated_by):
         if not self.guild_config_store:
@@ -599,14 +602,17 @@ class Music(commands.Cog):
         try:
             credentials = await asyncio.to_thread(store.get_credentials, ctx.guild.id)
         except SpotifyStoreError:
-            await ctx.send("Stored Spotify credentials are unavailable. Run `/spotify server clear` and try again.")
+            command = self.command_reference(ctx.guild.id, "spotify server clear")
+            await ctx.send(f"Stored Spotify credentials are unavailable. Run {command} and try again.")
             return False
         if credentials:
             status = await asyncio.to_thread(store.status, ctx.guild.id)
             configured_by, updated_at = status
+            clear_command = self.command_reference(ctx.guild.id, "spotify server clear")
+            setup_command = self.command_reference(ctx.guild.id, "spotify server setup")
             await ctx.send(
                 f"Spotify is configured for this server by <@{configured_by}> (updated {updated_at} UTC). "
-                "Use `/spotify server clear` and then `/spotify server setup` to replace its credentials."
+                f"Use {clear_command} and then {setup_command} to replace its credentials."
             )
             return True
 
@@ -628,7 +634,8 @@ class Music(commands.Cog):
         try:
             reply = await self.bot.wait_for("message", check=valid_reply, timeout=300)
         except asyncio.TimeoutError:
-            await ctx.send("Spotify configuration timed out. Run `/spotify server setup` to retry.")
+            command = self.command_reference(ctx.guild.id, "spotify server setup")
+            await ctx.send(f"Spotify configuration timed out. Run {command} to retry.")
             return False
 
         values = [line.strip() for line in reply.content.splitlines() if line.strip()]
@@ -641,7 +648,10 @@ class Music(commands.Cog):
             await asyncio.to_thread(client.validate_credentials)
             await asyncio.to_thread(store.save_credentials, ctx.guild.id, client_id, client_secret, ctx.author.id)
         except (SpotifyError, requests.RequestException, SpotifyStoreError):
-            await dm.send("Spotify could not validate those credentials. Nothing was saved; run `/spotify server setup` to try again.")
+            command = self.command_reference(ctx.guild.id, "spotify server setup")
+            await dm.send(
+                f"Spotify could not validate those credentials. Nothing was saved; run {command} to try again."
+            )
             return False
         await dm.send("Spotify credentials were saved for this server.")
         await self.get_spotify_playlist_token(
@@ -814,9 +824,9 @@ class Music(commands.Cog):
                 raise ValueError("callback did not match the authorization request")
             code = parameters["code"][0]
         except (asyncio.TimeoutError, KeyError, ValueError):
-            prefix = self.get_command_prefix(ctx.guild.id)
+            command = self.command_reference(ctx.guild.id, "play")
             await dm.send(
-                f"Spotify playlist authorization was cancelled or invalid. Run `{prefix}play` "
+                f"Spotify playlist authorization was cancelled or invalid. Run {command} "
                 "with the playlist again to retry."
             )
             return None
@@ -830,10 +840,10 @@ class Music(commands.Cog):
             else:
                 await asyncio.to_thread(store.save_user_playlist_token, ctx.author.id, access_token, refresh_token, now + expires_in)
         except (SpotifyPlaylistAuthorizationError, requests.RequestException, SpotifyStoreError):
-            prefix = self.get_command_prefix(ctx.guild.id)
+            command = self.command_reference(ctx.guild.id, "play")
             await dm.send(
                 "Spotify could not complete playlist authorization. Nothing was saved; "
-                f"run `{prefix}play` with the playlist again to retry."
+                f"run {command} with the playlist again to retry."
             )
             return None
         await dm.send(
@@ -1023,7 +1033,7 @@ class Music(commands.Cog):
             f"Found: **{processed}** available video{'s' if processed != 1 else ''}."
         )
 
-    def playlist_import_complete(self, service, total, queued, item_name, prefix, skipped=0):
+    def playlist_import_complete(self, service, total, queued, item_name, guild_id, skipped=0):
         summary = (
             f"✅ **{service} import complete**\n"
             f"{self.playlist_progress_bar(total, total)} `100%` ({total}/{total})\n"
@@ -1031,9 +1041,9 @@ class Music(commands.Cog):
         )
         if skipped:
             summary += f" Skipped: **{skipped}** with no YouTube match."
-        return summary + f" Use `{prefix}q` to view the queue."
+        return summary + f" Use {self.command_reference(guild_id, 'queue', 'q')} to view the queue."
 
-    def playlist_import_cancelled(self, service, processed, total, queued, item_name, prefix, skipped=0):
+    def playlist_import_cancelled(self, service, processed, total, queued, item_name, guild_id, skipped=0):
         summary = (
             f"🛑 **{service} import cancelled**\n"
             f"{self.playlist_progress_bar(processed, total)} ({processed}/{total})\n"
@@ -1041,7 +1051,7 @@ class Music(commands.Cog):
         )
         if skipped:
             summary += f" Skipped: **{skipped}** with no YouTube match."
-        return summary + f" Use `{prefix}q` to view the queue."
+        return summary + f" Use {self.command_reference(guild_id, 'queue', 'q')} to view the queue."
 
     async def finish_youtube_playlist_import(
         self, ctx, session, status_message, cancel_view, remaining_entries, queued, total
@@ -1054,7 +1064,7 @@ class Music(commands.Cog):
                         status_message,
                         self.playlist_import_cancelled(
                             "YouTube playlist", total - len(remaining_entries) + index, total, queued, "videos",
-                            self.get_command_prefix(ctx.guild.id),
+                            ctx.guild.id,
                         ),
                         view=cancel_view,
                     )
@@ -1073,7 +1083,7 @@ class Music(commands.Cog):
             await self.edit_playlist_import_status(
                 status_message,
                 self.playlist_import_complete(
-                    "YouTube playlist", total, queued, "videos", self.get_command_prefix(ctx.guild.id)
+                    "YouTube playlist", total, queued, "videos", ctx.guild.id
                 ),
                 view=cancel_view,
             )
@@ -1126,7 +1136,7 @@ class Music(commands.Cog):
                         status_message,
                         self.playlist_import_cancelled(
                             service, total - len(remaining_tracks) + index, total, queued, "matches",
-                            self.get_command_prefix(ctx.guild.id), skipped,
+                            ctx.guild.id, skipped,
                         ),
                         view=cancel_view,
                     )
@@ -1147,7 +1157,7 @@ class Music(commands.Cog):
             await self.edit_playlist_import_status(
                 status_message,
                 self.playlist_import_complete(
-                    service, total, queued, "matches", self.get_command_prefix(ctx.guild.id), skipped
+                    service, total, queued, "matches", ctx.guild.id, skipped
                 ),
                 view=cancel_view,
             )
@@ -1227,7 +1237,7 @@ class Music(commands.Cog):
                 await self.play_current_track(ctx, session)
             await ctx.send(
                 f"YouTube playlist import: queued {queued} video{'s' if queued != 1 else ''}. "
-                f"Use `{self.get_command_prefix(ctx.guild.id)}q` to view the queue."
+                f"Use {self.command_reference(ctx.guild.id, 'queue', 'q')} to view the queue."
             )
         finally:
             if not background_import_started:
@@ -1320,7 +1330,9 @@ class Music(commands.Cog):
             summary = f"{service} import: queued {len(resolved)} match{'es' if len(resolved) != 1 else ''}"
             if skipped:
                 summary += f"; skipped {skipped} track{'s' if skipped != 1 else ''} with no YouTube match"
-            await ctx.send(summary + f". Use `{self.get_command_prefix(ctx.guild.id)}q` to view the queue.")
+            await ctx.send(
+                summary + f". Use {self.command_reference(ctx.guild.id, 'queue', 'q')} to view the queue."
+            )
         except SpotifyPlaylistAuthorizationError:
             if resource and resource.resource_type == "playlist" and connection and connection[1] == "guild":
                 await self.retry_personal_spotify_playlist(ctx, resource, options)
@@ -1335,8 +1347,13 @@ class Music(commands.Cog):
     @commands.hybrid_group(name="spotify", invoke_without_command=True)
     async def spotify(self, ctx):
         """Manage server and private Spotify connections."""
+        commands = [
+            self.command_reference(ctx.guild.id, "spotify server setup"),
+            self.command_reference(ctx.guild.id, "spotify server status"),
+            self.command_reference(ctx.guild.id, "spotify user status"),
+        ]
         await ctx.send(
-            "Use `/spotify server setup`, `/spotify server status`, or `/spotify user status`.",
+            f"Use {', '.join(commands[:-1])}, or {commands[-1]}.",
             ephemeral=bool(ctx.interaction),
         )
 
@@ -1347,8 +1364,13 @@ class Music(commands.Cog):
     )
     async def spotify_server(self, ctx):
         """Manage this server's Spotify credentials."""
+        commands = [
+            self.command_reference(ctx.guild.id, "spotify server setup"),
+            self.command_reference(ctx.guild.id, "spotify server clear"),
+            self.command_reference(ctx.guild.id, "spotify server status"),
+        ]
         await ctx.send(
-            "Use `/spotify server setup`, `/spotify server clear`, or `/spotify server status`.",
+            f"Use {', '.join(commands[:-1])}, or {commands[-1]}.",
             ephemeral=bool(ctx.interaction),
         )
 
@@ -1389,7 +1411,15 @@ class Music(commands.Cog):
     )
     async def spotify_user(self, ctx):
         """Manage your private Spotify connection."""
-        await ctx.send("Use `/spotify user setup`, `/spotify user status`, or `/spotify user clear`.", ephemeral=bool(ctx.interaction))
+        commands = [
+            self.command_reference(ctx.guild.id, "spotify user setup"),
+            self.command_reference(ctx.guild.id, "spotify user status"),
+            self.command_reference(ctx.guild.id, "spotify user clear"),
+        ]
+        await ctx.send(
+            f"Use {', '.join(commands[:-1])}, or {commands[-1]}.",
+            ephemeral=bool(ctx.interaction),
+        )
 
     @spotify_user.command(
         name="setup",
@@ -1402,9 +1432,11 @@ class Music(commands.Cog):
             return
         status = await asyncio.to_thread(store.user_status, ctx.author.id)
         if status:
+            clear_command = self.command_reference(ctx.guild.id, "spotify user clear")
+            setup_command = self.command_reference(ctx.guild.id, "spotify user setup")
             await ctx.send(
                 f"Your private Spotify credentials are configured (updated {status[0]} UTC). "
-                "Use `/spotify user clear` and then `/spotify user setup` to replace them.",
+                f"Use {clear_command} and then {setup_command} to replace them.",
                 ephemeral=bool(ctx.interaction),
             )
             return
@@ -1464,7 +1496,10 @@ class Music(commands.Cog):
     @commands.hybrid_command(name="help")
     async def help(self, ctx, command_name: str = None):
         """Show available commands or detailed help for one command."""
-        prefix = self.get_guild_config(ctx.guild.id)["command_prefix"]
+        config = self.get_guild_config(ctx.guild.id if ctx.guild else None)
+        reference = lambda command, prefix_command=None: format_command_reference(
+            config, command, prefix_command
+        )
         if command_name:
             command = self.bot.get_command(command_name.lower())
             if not command:
@@ -1472,41 +1507,47 @@ class Music(commands.Cog):
                 return
             embed = discord.Embed(title=f"Help: {command.name}", color=discord.Color.blue())
             embed.description = command.help or "No description is available for this command."
-            prefix_usage = f"{prefix}{command.name} {command.signature}".strip()
-            embed.add_field(name="Prefix usage", value=f"`{prefix_usage}`", inline=False)
-            embed.add_field(name="Slash usage", value=f"`/{command.name}`", inline=False)
-            if command.aliases:
-                embed.add_field(name="Prefix aliases", value=", ".join(f"`{prefix}{alias}`" for alias in command.aliases), inline=False)
+            signature = f" {command.signature}" if command.signature else ""
+            if config["slash_commands_enabled"]:
+                embed.add_field(name="Slash usage", value=f"`/{command.name}{signature}`", inline=False)
+            if config["prefix_commands_enabled"]:
+                prefix = config["command_prefix"]
+                embed.add_field(name="Prefix usage", value=f"`{prefix}{command.name}{signature}`", inline=False)
+                if command.aliases:
+                    embed.add_field(
+                        name="Prefix aliases",
+                        value=", ".join(f"`{prefix}{alias}`" for alias in command.aliases),
+                        inline=False,
+                    )
             await ctx.send(embed=embed, ephemeral=bool(ctx.interaction))
             return
 
         embed = discord.Embed(title="Command reference", color=discord.Color.blue())
         embed.description = (
-            f"Use `{prefix}<command>` or `/command`. Run `{prefix}help <command>` or `/help` with a command "
-            "for focused usage and aliases."
+            f"Use {reference('<command>')}. Run {reference('help <command>')} for focused usage and aliases."
         )
         embed.add_field(
             name="Playback",
             value=(
-                f"`{prefix}play <query or URL>` - Play a YouTube search, video, playlist, or Spotify link.\n"
-                f"`{prefix}pause` / `{prefix}resume` - Pause or resume current playback.\n"
-                f"`{prefix}skip` - Advance to the next queued track.\n"
-                f"`{prefix}seek <seconds|MM:SS|HH:MM:SS>` - Seek within the current track.\n"
-                f"`{prefix}restart` - Restart the current track from the beginning.\n"
-                f"`{prefix}shuffle` - Shuffle upcoming tracks while preserving the current one.\n"
-                f"`{prefix}stop` - Stop playback and clear the queue.\n"
-                f"`{prefix}leave` / `{prefix}here` - Disconnect or move the bot to your voice channel."
+                f"{reference('play <query or URL>')} - Play a YouTube search, video, playlist, or Spotify link.\n"
+                f"{reference('pause')} / {reference('resume')} - Pause or resume current playback.\n"
+                f"{reference('skip')} - Advance to the next queued track.\n"
+                f"{reference('seek <seconds|MM:SS|HH:MM:SS>')} - Seek within the current track.\n"
+                f"{reference('restart')} - Restart the current track from the beginning.\n"
+                f"{reference('shuffle')} - Shuffle upcoming tracks while preserving the current one.\n"
+                f"{reference('stop')} - Stop playback and clear the queue.\n"
+                f"{reference('leave')} / {reference('here')} - Disconnect or move the bot to your voice channel."
             ),
             inline=False,
         )
         embed.add_field(
             name="Queue",
             value=(
-                f"`{prefix}queue` - Show the queue at the page containing the current track.\n"
-                f"`{prefix}playingnow` - Show the track currently playing.\n"
-                f"`{prefix}remove` - Choose an upcoming track to remove.\n"
-                f"`{prefix}move` - Reorder an upcoming track.\n"
-                f"`{prefix}clearqueue` - Remove all upcoming tracks and keep the current one."
+                f"{reference('queue')} - Show the queue at the page containing the current track.\n"
+                f"{reference('playingnow')} - Show the track currently playing.\n"
+                f"{reference('remove')} - Choose an upcoming track to remove.\n"
+                f"{reference('move')} - Reorder an upcoming track.\n"
+                f"{reference('clearqueue')} - Remove all upcoming tracks and keep the current one."
             ),
             inline=False,
         )
@@ -1524,25 +1565,25 @@ class Music(commands.Cog):
         embed.add_field(
             name="Personal playlists",
             value=(
-                f"`{prefix}playlist` - List your saved playlists.\n"
-                f"`{prefix}playlist create <name>` - Create a playlist.\n"
-                f"`{prefix}playlist add <name> <source>` - Save a YouTube/Spotify song or playlist.\n"
-                f"`{prefix}playlist view [@member] [name]` - View saved playlists or songs.\n"
-                f"`{prefix}playlist play <name> [@member]` - Queue a saved playlist.\n"
-                f"`{prefix}playlist remove|move|delete` - Edit or delete your saved playlists."
+                f"{reference('playlist')} - List your saved playlists.\n"
+                f"{reference('playlist create <name>')} - Create a playlist.\n"
+                f"{reference('playlist add <name> <source>')} - Save a YouTube/Spotify song or playlist.\n"
+                f"{reference('playlist view [@member] [name]')} - View saved playlists or songs.\n"
+                f"{reference('playlist play <name> [@member]')} - Queue a saved playlist.\n"
+                f"{reference('playlist remove|move|delete')} - Edit or delete your saved playlists."
             ),
             inline=False,
         )
         embed.add_field(
             name="Spotify and server settings",
             value=(
-                f"`{prefix}config` - Open the server music settings form (Manage Server required).\n"
-                f"`{prefix}spotify server setup` - Configure Spotify for this server (Manage Server required).\n"
-                f"`{prefix}spotify server clear` - Remove this server's Spotify credentials (Manage Server required).\n"
-                f"`{prefix}spotify server status` - Show this server's Spotify configuration status.\n"
-                f"`{prefix}spotify user setup` - Configure your private Spotify credentials.\n"
-                f"`{prefix}spotify user status` - Show your private Spotify connection status.\n"
-                f"`{prefix}spotify user clear` - Remove your private Spotify credentials.\n"
+                f"{reference('config')} - Open the server music settings form (Manage Server required).\n"
+                f"{reference('spotify server setup')} - Configure Spotify for this server (Manage Server required).\n"
+                f"{reference('spotify server clear')} - Remove this server's Spotify credentials (Manage Server required).\n"
+                f"{reference('spotify server status')} - Show this server's Spotify configuration status.\n"
+                f"{reference('spotify user setup')} - Configure your private Spotify credentials.\n"
+                f"{reference('spotify user status')} - Show your private Spotify connection status.\n"
+                f"{reference('spotify user clear')} - Remove your private Spotify credentials.\n"
                 "Playlist imports support `--count`, `--range`, `--ordered`, and `--shuffle`."
             ),
             inline=False,
@@ -1550,9 +1591,9 @@ class Music(commands.Cog):
         embed.add_field(
             name="Server assistant",
             value=(
-                f"`{prefix}time` - Show the server time.\n"
-                f"`{prefix}up` - Show bot version, container hostname, and uptime.\n"
-                f"`{prefix}ping` - Check bot responsiveness."
+                f"{reference('time')} - Show the server time.\n"
+                f"{reference('up')} - Show bot version, container hostname, and uptime.\n"
+                f"{reference('ping')} - Check bot responsiveness."
             ),
             inline=False,
         )
@@ -1827,7 +1868,8 @@ class Music(commands.Cog):
             return
         playlists = await asyncio.to_thread(self.user_playlist_store.list_playlists, ctx.author.id)
         if not playlists:
-            await ctx.send("You have no saved playlists. Use `/playlist create` to make one.")
+            command = self.command_reference(ctx.guild.id, "playlist create <name>")
+            await ctx.send(f"You have no saved playlists. Use {command} to make one.")
             return
         lines = [f"**{escape_markdown(name)}** - {count} song{'s' if count != 1 else ''}" for name, count in playlists]
         await ctx.send(embed=discord.Embed(title=f"{ctx.author.display_name}'s Playlists", description="\n".join(lines)))
@@ -2954,10 +2996,10 @@ class Music(commands.Cog):
     @play.error
     async def on_command_error(self, ctx, error):
         if isinstance(error, commands.MissingRequiredArgument):
-            prefix = self.get_command_prefix(ctx.guild.id)
+            usage = self.command_reference(ctx.guild.id, "play <query>")
             await ctx.send(
                 f"*❌ Please provide a search query or YouTube URL when using the `play` command. "
-                f"Usage: `{prefix}play <query>`*"
+                f"Usage: {usage}*"
             )
             await self.add_reaction(ctx, "❌")
             return
@@ -2965,10 +3007,10 @@ class Music(commands.Cog):
     @search.error
     async def on_command_error(self, ctx, error):
         if isinstance(error, commands.MissingRequiredArgument):
-            prefix = self.get_command_prefix(ctx.guild.id)
+            usage = self.command_reference(ctx.guild.id, "search <query>")
             await ctx.send(
                 f"*❌ Please provide a search query or YouTube URL when using the `search` command. "
-                f"Usage: `{prefix}search <query>`*"
+                f"Usage: {usage}*"
             )
             await self.add_reaction(ctx, "❌")
             return
