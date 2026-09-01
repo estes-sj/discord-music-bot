@@ -140,6 +140,66 @@ class SpotifyPlaylistModal(discord.ui.Modal, title="Spotify playlist import"):
         await interaction.followup.send("Playlist import started in the channel.", ephemeral=True)
 
 
+class LastFMRadioLauncher(discord.ui.View):
+    def __init__(self, music_cog, ctx, query, tracks):
+        super().__init__(timeout=300)
+        self.music_cog = music_cog
+        self.ctx = ctx
+        self.query = query
+        self.tracks = tracks
+        self.owner_id = ctx.author.id
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(
+                "Only the user who requested this radio can configure it.",
+                ephemeral=True,
+            )
+            return False
+        user_voice = getattr(interaction.user, "voice", None)
+        if not user_voice:
+            await interaction.response.send_message(
+                "Join a voice channel before importing this radio.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    @discord.ui.button(label="Configure radio", emoji="📻", style=discord.ButtonStyle.secondary)
+    async def configure(self, interaction, button):
+        await interaction.response.send_modal(LastFMRadioModal(self.music_cog, self.ctx, self.query, self.tracks))
+
+
+class LastFMRadioModal(SpotifyPlaylistModal, title="Radio import"):
+    def __init__(self, music_cog, ctx, query, tracks):
+        super().__init__(music_cog, ctx, query, tracks)
+        self.query = query
+
+    async def on_submit(self, interaction):
+        arguments = f"--count {self.count.value} --{self.ordering.value.strip().lower()}"
+        if self.range_value.value.strip():
+            arguments += f" --range {self.range_value.value.strip()}"
+        try:
+            options = parse_playlist_options(
+                arguments,
+                self.config["playlist_max_tracks"],
+                self.config["playlist_default_tracks"],
+                self.config["playlist_default_shuffle"],
+            )
+        except (SpotifyError, ValueError) as error:
+            await interaction.response.send_message(f"Invalid radio configuration: {error}", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        await self.music_cog.import_spotify(
+            self.ctx,
+            None,
+            options,
+            tracks=self.tracks,
+            service="Radio",
+        )
+        await interaction.followup.send("Radio import started in the channel.", ephemeral=True)
+
+
 class YouTubePlaylistLauncher(discord.ui.View):
     def __init__(self, music_cog, ctx, playlist_url, entries):
         super().__init__(timeout=300)

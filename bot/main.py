@@ -106,10 +106,13 @@ client.guild_config_defaults = {
     "playlist_default_tracks": max(1, int(os.getenv("PLAYLIST_DEFAULT_TRACKS", "20"))),
     "playlist_default_shuffle": os.getenv("PLAYLIST_DEFAULT_SHUFFLE", "false").lower() == "true",
     "rating_history_enabled": environment_boolean("RATING_HISTORY_ENABLED", True),
+    "lastfm_enabled": environment_boolean("LASTFM_ENABLED", False),
 }
 client.ytdlp_timeout_seconds = environment_nonnegative_integer("YTDLP_TIMEOUT_SECONDS", 45, minimum=1)
 client.play_cooldown_seconds = environment_nonnegative_integer("PLAY_COOLDOWN_SECONDS", 0)
 client.search_cooldown_seconds = environment_nonnegative_integer("SEARCH_COOLDOWN_SECONDS", 1)
+client.lastfm_radio_cooldown_seconds = environment_nonnegative_integer("LASTFM_RADIO_COOLDOWN_SECONDS", 10)
+client.lastfm_timeout_seconds = environment_nonnegative_integer("LASTFM_TIMEOUT_SECONDS", 15, minimum=1)
 client.playlist_import_concurrency_per_guild = environment_nonnegative_integer(
     "PLAYLIST_IMPORT_CONCURRENCY_PER_GUILD", 1, minimum=1
 )

@@ -4,7 +4,7 @@
     <img src="docs/queuemessageonly.png" alt="Music Bot Peek" width="50%"/>
 </p>
 
-A Discord bot that allows users to play music and playlists from YouTube in a voice channel with custom commands for search, play, pause, and more. Spotify track, album, and playlist links are resolved to matching YouTube audio.
+A Discord bot that allows users to play music and playlists from YouTube in a voice channel with custom commands for search, play, pause, and more. Spotify track, album, and playlist links and Last.fm radio recommendations are resolved to matching YouTube audio.
 Supports multiple tracks, queue management, and interactive selection.
 
 The main tools used are `yt-dlp` for pulling YouTube data and [FFmpeg](https://www.ffmpeg.org/) for audio streaming.
@@ -15,6 +15,7 @@ I used cogs since I adapt this code onto other bots that I have. It makes it a b
 See [Usage](#usage) for more information and examples on specific commands and features. Some of the music bot's features include:
 - Search and play YouTube music directly in voice channels
 - Resolve Spotify track, album, and playlist metadata to YouTube equivalents
+- Build configurable radio queues from Last.fm songs, artists, genres, and keywords
 - Queue management with pagination
 - Like or dislike currently playing songs, with persistent guild statistics
 - Support for multiple guilds via Sessions
@@ -33,6 +34,20 @@ Both slash-commands (`/`) and prefix commands (`.`) are supported. Prefix comman
   <div class="image-container" align="center">
       <img src="docs/search.png" alt="Search Example" width="50%"/>
   </div>
+</details>
+
+<details>
+  <summary><code>/radio &lt;keywords&gt;</code> - Builds a radio queue with Last.fm</summary>
+
+  Use a song, artist, genre, or other keywords as the seed. The bot combines Last.fm similar tracks, artist top tracks, and tag top tracks, removes duplicates, and opens the standard playlist form. Choose the number of tracks, optional positions or ranges, and ordered or shuffled playback before the bot matches the selected tracks on YouTube.
+
+  ```text
+  /radio query:pastel rain
+  .radio dream pop
+  .radio Radiohead
+  ```
+
+  The bot operator must enable and configure Last.fm. A server administrator can then enable or disable radio for that server with `/config`.
 </details>
 
 <details>
@@ -467,7 +482,8 @@ These values are the defaults for new guilds. A member with **Manage Server** ca
 | `PLAYLIST_MAX_TRACKS` | `20` | `PLAYLIST_MAX_TRACKS=50` | Maximum number of tracks accepted from an album or playlist import. |
 | `PLAYLIST_DEFAULT_TRACKS` | `20` | `PLAYLIST_DEFAULT_TRACKS=10` | Track count used by the playlist configuration modal and imports without an explicit count. |
 | `PLAYLIST_DEFAULT_SHUFFLE` | `false` | `PLAYLIST_DEFAULT_SHUFFLE=true` | Whether playlist imports shuffle eligible tracks by default. |
-| `RATING_HISTORY_ENABLED` | `true` | `RATING_HISTORY_ENABLED=false` | Whether now-playing messages show the song's historical likes and dislikes. The fourth value in the `/config` playlist field overrides this per server. |
+| `RATING_HISTORY_ENABLED` | `true` | `RATING_HISTORY_ENABLED=false` | Whether now-playing messages show the song's historical likes and dislikes. The first value in the `/config` features field overrides this per server. |
+| `LASTFM_ENABLED` | `false` | `LASTFM_ENABLED=true` | Makes Last.fm radio available to servers. The second value in the `/config` features field enables or disables it per server; a server cannot override an operator value of `false`. |
 
 #### Bot-Wide Behavior and Safeguards
 
@@ -478,6 +494,8 @@ These values are the defaults for new guilds. A member with **Manage Server** ca
 | `YTDLP_TIMEOUT_SECONDS` | `45` | `YTDLP_TIMEOUT_SECONDS=60` | Maximum seconds to wait for one yt-dlp source-resolution operation before returning a safe failure. |
 | `PLAY_COOLDOWN_SECONDS` | `0` | `PLAY_COOLDOWN_SECONDS=10` | Per-user, per-server cooldown for `/play` and the prefix equivalent. `0` disables this cooldown. |
 | `SEARCH_COOLDOWN_SECONDS` | `1` | `SEARCH_COOLDOWN_SECONDS=5` | Per-user, per-server cooldown for `/search` and the prefix equivalent. `0` disables this cooldown. |
+| `LASTFM_RADIO_COOLDOWN_SECONDS` | `10` | `LASTFM_RADIO_COOLDOWN_SECONDS=30` | Per-user, per-server cooldown for `/radio`. `0` disables this cooldown. Only one radio lookup per user and server can run at a time. |
+| `LASTFM_TIMEOUT_SECONDS` | `15` | `LASTFM_TIMEOUT_SECONDS=30` | Maximum seconds to wait for Last.fm while building radio recommendations. |
 | `PLAYLIST_IMPORT_CONCURRENCY_PER_GUILD` | `1` | `PLAYLIST_IMPORT_CONCURRENCY_PER_GUILD=2` | Maximum simultaneous playlist imports within one server. Keep `1` unless host capacity testing supports more. |
 | `NOW_PLAYING_CONTROLS_MINIMUM_TIMEOUT_SECONDS` | `600` | `NOW_PLAYING_CONTROLS_MINIMUM_TIMEOUT_SECONDS=900` | Minimum lifetime for currently-playing controls. Known-duration tracks use the greater of this value or their remaining duration plus `NOW_PLAYING_CONTROLS_TIMEOUT_BUFFER_SECONDS`. |
 | `NOW_PLAYING_CONTROLS_TIMEOUT_BUFFER_SECONDS` | `60` | `NOW_PLAYING_CONTROLS_TIMEOUT_BUFFER_SECONDS=120` | Extra time added to a known track's remaining duration when setting its currently-playing control lifetime. |
@@ -494,6 +512,17 @@ These values are the defaults for new guilds. A member with **Manage Server** ca
 | `SPOTIFY_CREDENTIAL_ENCRYPTION_KEY` | None | `SPOTIFY_CREDENTIAL_ENCRYPTION_KEY=...` | Fernet key used to encrypt guild and personal Spotify credentials at rest. Generate one with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Required for Spotify support. |
 | `SPOTIFY_MARKET` | `US` | `SPOTIFY_MARKET=CA` | Two-letter country code used to determine Spotify catalog availability for the Client Credentials flow. Set this to the bot's intended region. |
 | `SPOTIFY_REDIRECT_URI` | None | `SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/spotify-callback` | Exact callback URL registered in the Spotify Developer Dashboard for one-time playlist authorization. Spotify permits HTTP only for an explicit loopback IP, not `localhost` or a LAN/server IP. The authorizing user copies the redirected URL to the bot's DM. Required for playlists. |
+
+#### Last.fm Radio
+
+Create an API application at [Last.fm API Accounts](https://www.last.fm/api/account/create). The API key and secret are required. Username and password are optional for read-only radio results, but must be supplied together when used.
+
+| Variable | Default | Example | Description |
+| --- | --- | --- | --- |
+| `LASTFM_API_KEY` | None | `LASTFM_API_KEY=...` | Last.fm application API key. Required when `LASTFM_ENABLED=true`. |
+| `LASTFM_API_SECRET` | None | `LASTFM_API_SECRET=...` | Last.fm application shared secret. Required when `LASTFM_ENABLED=true`. |
+| `LASTFM_USERNAME` | None | `LASTFM_USERNAME=musicbot` | Optional Last.fm account username. |
+| `LASTFM_PASSWORD` | None | `LASTFM_PASSWORD=...` | Optional Last.fm account password. It is hashed before being passed to pylast and must be configured with `LASTFM_USERNAME`. |
 
 #### Persistent Storage
 
@@ -513,7 +542,7 @@ These values are the defaults for new guilds. A member with **Manage Server** ca
 | `LOG_BACKUP_COUNT` | `5` | `LOG_BACKUP_COUNT=10` | Number of rotated `discord.log` files to retain. |
 | `YTDLP_UPDATE_SCHEDULE` | `0 4 * * *` | `YTDLP_UPDATE_SCHEDULE="0 8 * * *"` | Cron expression for yt-dlp updates. Output is written to `logs/yt-dlp-update.log`. |
 
-Server administrators can run `.config` or `/config` to set a server-specific command prefix, command modes, auto-disconnect policies, playlist defaults, and historical rating visibility. The playlist field uses `maximum, default, shuffle, ratings`, such as `20, 20, false, true`. Guilds can disable either prefix or slash commands, but must keep one mode enabled. `SLASH_COMMANDS_ENABLED=false` or `PREFIX_COMMANDS_ENABLED=false` is an operator-level restriction and prevents guild administrators from re-enabling that mode. These overrides are stored in `GUILD_CONFIG_DATABASE_PATH`; environment values remain the defaults for servers without an override.
+Server administrators can run `.config` or `/config` to set a server-specific command prefix, command modes, auto-disconnect policies, playlist defaults, historical rating visibility, and Last.fm radio availability. The disconnect field uses `empty enabled, empty minutes, inactivity enabled, inactivity minutes`; the playlist field uses `maximum, default, shuffle`; and the features field uses `rating history, Last.fm radio`. Guilds can disable either prefix or slash commands, but must keep one mode enabled. `SLASH_COMMANDS_ENABLED=false`, `PREFIX_COMMANDS_ENABLED=false`, or `LASTFM_ENABLED=false` is an operator-level restriction and prevents guild administrators from enabling that feature. These overrides are stored in `GUILD_CONFIG_DATABASE_PATH`; environment values remain the defaults for servers without an override.
 
 ## Troubleshooting
 

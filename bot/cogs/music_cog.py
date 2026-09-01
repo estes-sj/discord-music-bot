@@ -22,6 +22,7 @@ import bot.utils.music_utilities as Utilities
 from bot.views.playback_views import MusicControls
 from bot.views.config_views import GuildConfigLauncher, GuildConfigModal
 from bot.views.playlist_views import (
+    LastFMRadioLauncher,
     PlaylistImportCancelView,
     PersonalSpotifySetupView,
     SavedPlaylistLauncher,
@@ -30,6 +31,7 @@ from bot.views.playlist_views import (
     YouTubePlaylistLauncher,
     UserPlaylistPlayLauncher,
 )
+from bot.utils.lastfm_client import LastFMClient, LastFMError
 from bot.views.queue_views import (
     QueuedTrackControls,
     QueueRemoveLauncher,
@@ -81,6 +83,17 @@ class Music(commands.Cog):
         self.song_stats_store = getattr(self.bot, "song_stats_store", None)
         self.user_playlist_store = getattr(self.bot, "user_playlist_store", None)
         self.guild_config_store = getattr(self.bot, "guild_config_store", None)
+        self.lastfm_client = None
+        if self.bot.guild_config_defaults["lastfm_enabled"]:
+            try:
+                self.lastfm_client = LastFMClient(
+                    os.getenv("LASTFM_API_KEY"),
+                    os.getenv("LASTFM_API_SECRET"),
+                    os.getenv("LASTFM_USERNAME") or None,
+                    os.getenv("LASTFM_PASSWORD") or None,
+                )
+            except LastFMError as error:
+                logger.warning("Radio service support is unavailable: %s", error)
         if self.spotify_store is None:
             logger.warning("Spotify support is not configured for this bot.")
         if self.song_stats_store is None:
@@ -94,6 +107,9 @@ class Music(commands.Cog):
         if not self.guild_config_store:
             return defaults.copy()
         return self.guild_config_store.get(guild_id, defaults)
+
+    def get_command_prefix(self, guild_id):
+        return self.get_guild_config(guild_id)["command_prefix"]
 
     def save_guild_config(self, guild_id, config, updated_by):
         if not self.guild_config_store:
@@ -798,7 +814,11 @@ class Music(commands.Cog):
                 raise ValueError("callback did not match the authorization request")
             code = parameters["code"][0]
         except (asyncio.TimeoutError, KeyError, ValueError):
-            await dm.send("Spotify playlist authorization was cancelled or invalid. Run `.play` with the playlist again to retry.")
+            prefix = self.get_command_prefix(ctx.guild.id)
+            await dm.send(
+                f"Spotify playlist authorization was cancelled or invalid. Run `{prefix}play` "
+                "with the playlist again to retry."
+            )
             return None
 
         try:
@@ -810,7 +830,11 @@ class Music(commands.Cog):
             else:
                 await asyncio.to_thread(store.save_user_playlist_token, ctx.author.id, access_token, refresh_token, now + expires_in)
         except (SpotifyPlaylistAuthorizationError, requests.RequestException, SpotifyStoreError):
-            await dm.send("Spotify could not complete playlist authorization. Nothing was saved; run `.play` with the playlist again to retry.")
+            prefix = self.get_command_prefix(ctx.guild.id)
+            await dm.send(
+                "Spotify could not complete playlist authorization. Nothing was saved; "
+                f"run `{prefix}play` with the playlist again to retry."
+            )
             return None
         await dm.send(
             "Spotify playlist access was authorized for this server."
@@ -999,7 +1023,7 @@ class Music(commands.Cog):
             f"Found: **{processed}** available video{'s' if processed != 1 else ''}."
         )
 
-    def playlist_import_complete(self, service, total, queued, item_name, skipped=0):
+    def playlist_import_complete(self, service, total, queued, item_name, prefix, skipped=0):
         summary = (
             f"✅ **{service} import complete**\n"
             f"{self.playlist_progress_bar(total, total)} `100%` ({total}/{total})\n"
@@ -1007,9 +1031,9 @@ class Music(commands.Cog):
         )
         if skipped:
             summary += f" Skipped: **{skipped}** with no YouTube match."
-        return summary + " Use `.q` to view the queue."
+        return summary + f" Use `{prefix}q` to view the queue."
 
-    def playlist_import_cancelled(self, service, processed, total, queued, item_name, skipped=0):
+    def playlist_import_cancelled(self, service, processed, total, queued, item_name, prefix, skipped=0):
         summary = (
             f"🛑 **{service} import cancelled**\n"
             f"{self.playlist_progress_bar(processed, total)} ({processed}/{total})\n"
@@ -1017,7 +1041,7 @@ class Music(commands.Cog):
         )
         if skipped:
             summary += f" Skipped: **{skipped}** with no YouTube match."
-        return summary + " Use `.q` to view the queue."
+        return summary + f" Use `{prefix}q` to view the queue."
 
     async def finish_youtube_playlist_import(
         self, ctx, session, status_message, cancel_view, remaining_entries, queued, total
@@ -1029,7 +1053,8 @@ class Music(commands.Cog):
                     await self.edit_playlist_import_status(
                         status_message,
                         self.playlist_import_cancelled(
-                            "YouTube playlist", total - len(remaining_entries) + index, total, queued, "videos"
+                            "YouTube playlist", total - len(remaining_entries) + index, total, queued, "videos",
+                            self.get_command_prefix(ctx.guild.id),
                         ),
                         view=cancel_view,
                     )
@@ -1047,7 +1072,9 @@ class Music(commands.Cog):
             cancel_view.finish()
             await self.edit_playlist_import_status(
                 status_message,
-                self.playlist_import_complete("YouTube playlist", total, queued, "videos"),
+                self.playlist_import_complete(
+                    "YouTube playlist", total, queued, "videos", self.get_command_prefix(ctx.guild.id)
+                ),
                 view=cancel_view,
             )
         except Exception as error:
@@ -1089,7 +1116,7 @@ class Music(commands.Cog):
         return resolved, skipped
 
     async def finish_spotify_playlist_import(
-        self, ctx, session, status_message, cancel_view, remaining_tracks, queued, skipped, total
+        self, ctx, session, status_message, cancel_view, remaining_tracks, queued, skipped, total, service="Spotify"
     ):
         try:
             for index in range(0, len(remaining_tracks), PLAYLIST_PROGRESS_BATCH_SIZE):
@@ -1098,7 +1125,8 @@ class Music(commands.Cog):
                     await self.edit_playlist_import_status(
                         status_message,
                         self.playlist_import_cancelled(
-                            "Spotify", total - len(remaining_tracks) + index, total, queued, "matches", skipped
+                            service, total - len(remaining_tracks) + index, total, queued, "matches",
+                            self.get_command_prefix(ctx.guild.id), skipped,
                         ),
                         view=cancel_view,
                     )
@@ -1112,27 +1140,29 @@ class Music(commands.Cog):
                     await self.edit_playlist_import_status(
                         status_message,
                         self.playlist_import_progress(
-                            "Spotify", total - remaining, total, queued, "matches"
+                            service, total - remaining, total, queued, "matches"
                         ),
                     )
             cancel_view.finish()
             await self.edit_playlist_import_status(
                 status_message,
-                self.playlist_import_complete("Spotify", total, queued, "matches", skipped),
+                self.playlist_import_complete(
+                    service, total, queued, "matches", self.get_command_prefix(ctx.guild.id), skipped
+                ),
                 view=cancel_view,
             )
         except Exception as error:
-            logger.exception("Guild %s: Spotify playlist background import failed", ctx.guild.id)
+            logger.exception("Guild %s: %s background import failed", ctx.guild.id, service)
             cancel_view.finish()
             await self.edit_playlist_import_status(
                 status_message,
-                f"Spotify import stopped after queuing {queued} of {total} selected tracks due to a source error.",
+                f"{service} import stopped after queuing {queued} of {total} selected tracks due to a source error.",
                 view=cancel_view,
             )
         finally:
             self.release_playlist_import(ctx.guild.id)
 
-    async def start_spotify_playlist_import(self, ctx, session, selected_tracks):
+    async def start_spotify_playlist_import(self, ctx, session, selected_tracks, service="Spotify"):
         initial_tracks = selected_tracks[:PLAYLIST_INITIAL_BATCH_SIZE]
         remaining_tracks = selected_tracks[PLAYLIST_INITIAL_BATCH_SIZE:]
         async with ctx.typing():
@@ -1141,13 +1171,13 @@ class Music(commands.Cog):
         cancel_view = PlaylistImportCancelView(ctx.author.id, ctx.guild.id)
         status_message = await ctx.send(
             self.playlist_import_progress(
-                "Spotify", len(initial_tracks), len(selected_tracks), queued, "matches"
+                service, len(initial_tracks), len(selected_tracks), queued, "matches"
             ),
             view=cancel_view,
         )
         cancel_view.task = asyncio.create_task(
             self.finish_spotify_playlist_import(
-                ctx, session, status_message, cancel_view, remaining_tracks, queued, skipped, len(selected_tracks)
+                ctx, session, status_message, cancel_view, remaining_tracks, queued, skipped, len(selected_tracks), service
             )
         )
 
@@ -1196,13 +1226,14 @@ class Music(commands.Cog):
             if not voice.is_playing() and not voice.is_paused():
                 await self.play_current_track(ctx, session)
             await ctx.send(
-                f"YouTube playlist import: queued {queued} video{'s' if queued != 1 else ''}. Use `.q` to view the queue."
+                f"YouTube playlist import: queued {queued} video{'s' if queued != 1 else ''}. "
+                f"Use `{self.get_command_prefix(ctx.guild.id)}q` to view the queue."
             )
         finally:
             if not background_import_started:
                 self.release_playlist_import(ctx.guild.id)
 
-    async def import_spotify(self, ctx, resource, options, tracks=None, connection=None):
+    async def import_spotify(self, ctx, resource, options, tracks=None, connection=None, service="Spotify"):
         if not await self.claim_playlist_import(ctx):
             return
         background_import_started = False
@@ -1240,7 +1271,7 @@ class Music(commands.Cog):
             if session is None:
                 return
             if len(selected_tracks) > PLAYLIST_INITIAL_BATCH_SIZE:
-                await self.start_spotify_playlist_import(ctx, session, selected_tracks)
+                await self.start_spotify_playlist_import(ctx, session, selected_tracks, service)
                 background_import_started = True
                 return
 
@@ -1253,7 +1284,7 @@ class Music(commands.Cog):
                     except Exception:
                         skipped += 1
             if not resolved:
-                await ctx.send("No selected Spotify tracks could be matched on YouTube.")
+                await ctx.send(f"No selected {service} tracks could be matched on YouTube.")
                 return
 
             voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
@@ -1286,12 +1317,12 @@ class Music(commands.Cog):
                     await self.send_queued_track_embed(ctx, session, queued_track)
                 return
 
-            summary = f"Spotify import: queued {len(resolved)} match{'es' if len(resolved) != 1 else ''}"
+            summary = f"{service} import: queued {len(resolved)} match{'es' if len(resolved) != 1 else ''}"
             if skipped:
                 summary += f"; skipped {skipped} track{'s' if skipped != 1 else ''} with no YouTube match"
-            await ctx.send(summary + ". Use `.q` to view the queue.")
+            await ctx.send(summary + f". Use `{self.get_command_prefix(ctx.guild.id)}q` to view the queue.")
         except SpotifyPlaylistAuthorizationError:
-            if resource.resource_type == "playlist" and connection and connection[1] == "guild":
+            if resource and resource.resource_type == "playlist" and connection and connection[1] == "guild":
                 await self.retry_personal_spotify_playlist(ctx, resource, options)
             else:
                 await ctx.send("Your Spotify account cannot access that playlist.")
@@ -1482,10 +1513,11 @@ class Music(commands.Cog):
         embed.add_field(
             name="Discovery and statistics",
             value=(
-                f"`{prefix}search <query>` - Search YouTube and select a result.\n"
-                f"`{prefix}mostplayed` - Show this server's most played tracks.\n"
-                f"`{prefix}mostliked` / `{prefix}mostdisliked` - Show this server's rated tracks.\n"
-                f"`{prefix}myliked` - Show tracks you liked in this server."
+                f"{reference('search <query>')} - Search YouTube and select a result.\n"
+                f"{reference('radio <keywords>')} - Build a configurable radio queue.\n"
+                f"{reference('mostplayed')} - Show this server's most played tracks.\n"
+                f"{reference('mostliked')} / {reference('mostdisliked')} - Show this server's rated tracks.\n"
+                f"{reference('myliked')} - Show tracks you liked in this server."
             ),
             inline=False,
         )
@@ -2162,6 +2194,54 @@ class Music(commands.Cog):
             "You have not liked any songs in this server yet.",
             ctx.author.id,
         )
+
+    @commands.hybrid_command(name="radio")
+    async def radio(self, ctx, *, query: str):
+        """Build a configurable radio queue from radio service recommendations."""
+        config = self.get_guild_config(ctx.guild.id)
+        if not config["lastfm_enabled"]:
+            await ctx.send("The radio service is disabled for this server.", ephemeral=bool(ctx.interaction))
+            return
+        if not self.lastfm_client:
+            await ctx.send(
+                "The radio service is not configured by this bot operator.",
+                ephemeral=bool(ctx.interaction),
+            )
+            return
+        if not getattr(ctx.author, "voice", None):
+            await ctx.send("*You are not connected to a voice channel.*", ephemeral=bool(ctx.interaction))
+            return
+        if not await self.enforce_command_cooldown(
+            ctx,
+            "radio",
+            getattr(self.bot, "lastfm_radio_cooldown_seconds", 10),
+        ):
+            return
+        if not await self.claim_expensive_command(ctx, "radio"):
+            return
+        try:
+            if ctx.interaction and not ctx.interaction.response.is_done():
+                await ctx.defer()
+            async with ctx.typing():
+                async with asyncio.timeout(getattr(self.bot, "lastfm_timeout_seconds", 15)):
+                    tracks = await asyncio.to_thread(
+                        self.lastfm_client.get_radio_tracks,
+                        query,
+                        config["playlist_max_tracks"],
+                    )
+            if not tracks:
+                await ctx.send(f"The radio service found no radio tracks for **{escape_markdown(query)}**.")
+                return
+            await ctx.send(
+                f"Found **{len(tracks)}** radio tracks for **{escape_markdown(query)}**. Configure which tracks to queue.",
+                view=LastFMRadioLauncher(self, ctx, query, tracks),
+            )
+        except asyncio.TimeoutError:
+            await ctx.send("The radio service took too long to respond. Try again shortly.")
+        except LastFMError as error:
+            await ctx.send(f"Radio service error: {error}")
+        finally:
+            self.release_expensive_command(ctx, "radio")
 
     @commands.hybrid_command(name='play')
     async def play(self, ctx, *, query: str):
@@ -2874,14 +2954,22 @@ class Music(commands.Cog):
     @play.error
     async def on_command_error(self, ctx, error):
         if isinstance(error, commands.MissingRequiredArgument):
-            await ctx.send("*❌ Please provide a search query or YouTube URL when using the `play` command. Usage: `.play <query>`*")
+            prefix = self.get_command_prefix(ctx.guild.id)
+            await ctx.send(
+                f"*❌ Please provide a search query or YouTube URL when using the `play` command. "
+                f"Usage: `{prefix}play <query>`*"
+            )
             await self.add_reaction(ctx, "❌")
             return
 
     @search.error
     async def on_command_error(self, ctx, error):
         if isinstance(error, commands.MissingRequiredArgument):
-            await ctx.send("*❌ Please provide a search query or YouTube URL when using the `search` command. Usage:`.search <query>`*")
+            prefix = self.get_command_prefix(ctx.guild.id)
+            await ctx.send(
+                f"*❌ Please provide a search query or YouTube URL when using the `search` command. "
+                f"Usage: `{prefix}search <query>`*"
+            )
             await self.add_reaction(ctx, "❌")
             return
 
