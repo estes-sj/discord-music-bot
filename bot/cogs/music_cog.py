@@ -1529,61 +1529,61 @@ class Music(commands.Cog):
         embed.add_field(
             name="Playback",
             value=(
-                f"{reference('play <query or URL>')} - Play a YouTube search, video, playlist, or Spotify link.\n"
-                f"{reference('pause')} / {reference('resume')} - Pause or resume current playback.\n"
-                f"{reference('skip')} - Advance to the next queued track.\n"
-                f"{reference('seek <seconds|MM:SS|HH:MM:SS>')} - Seek within the current track.\n"
-                f"{reference('restart')} - Restart the current track from the beginning.\n"
-                f"{reference('shuffle')} - Shuffle upcoming tracks while preserving the current one.\n"
-                f"{reference('stop')} - Stop playback and clear the queue.\n"
-                f"{reference('leave')} / {reference('here')} - Disconnect or move the bot to your voice channel."
+                "`/play <query or URL>` - Play a YouTube search, video, playlist, or Spotify link.\n"
+                "`/pause` / `/resume` - Pause or resume current playback.\n"
+                "`/skip` - Advance to the next queued track.\n"
+                "`/seek <seconds|MM:SS|HH:MM:SS>` - Seek within the current track.\n"
+                "`/restart` - Restart the current track from the beginning.\n"
+                "`/shuffle` - Shuffle upcoming tracks while preserving the current one.\n"
+                "`/stop` - Stop playback and clear the queue.\n"
+                "`/leave` / `/here` - Disconnect or move the bot to your voice channel."
             ),
             inline=False,
         )
         embed.add_field(
             name="Queue",
             value=(
-                f"{reference('queue')} - Show the queue at the page containing the current track.\n"
-                f"{reference('playingnow')} - Show the track currently playing.\n"
-                f"{reference('remove')} - Choose an upcoming track to remove.\n"
-                f"{reference('move')} - Reorder an upcoming track.\n"
-                f"{reference('clearqueue')} - Remove all upcoming tracks and keep the current one."
+                "`/queue` - Show the queue at the page containing the current track.\n"
+                "`/playingnow` - Show the track currently playing.\n"
+                "`/remove` - Choose an upcoming track to remove.\n"
+                "`/move` - Reorder an upcoming track.\n"
+                "`/clearqueue` - Remove all upcoming tracks and keep the current one."
             ),
             inline=False,
         )
         embed.add_field(
             name="Discovery and statistics",
             value=(
-                f"{reference('search <query>')} - Search YouTube and select a result.\n"
-                f"{reference('radio <keywords>')} - Build a configurable radio queue.\n"
-                f"{reference('mostplayed')} - Show this server's most played tracks.\n"
-                f"{reference('mostliked')} / {reference('mostdisliked')} - Show this server's rated tracks.\n"
-                f"{reference('myliked')} - Show tracks you liked in this server."
+                "`/search <query>` - Search YouTube and select a result.\n"
+                "`/radio <keywords>` - Build a configurable radio queue.\n"
+                "`/mostplayed` - Show this server's most played tracks.\n"
+                "`/mostliked` / `/mostdisliked` - Show this server's rated tracks.\n"
+                "`/myliked` - Show tracks you liked in this server."
             ),
             inline=False,
         )
         embed.add_field(
             name="Personal playlists",
             value=(
-                f"{reference('playlist')} - List your saved playlists.\n"
-                f"{reference('playlist create <name>')} - Create a playlist.\n"
-                f"{reference('playlist add <name> <source>')} - Save a YouTube/Spotify song or playlist.\n"
-                f"{reference('playlist view [@member] [name]')} - View saved playlists or songs.\n"
-                f"{reference('playlist play <name> [@member]')} - Queue a saved playlist.\n"
-                f"{reference('playlist remove|move|delete')} - Edit or delete your saved playlists."
+                "`/playlist` - List your saved playlists.\n"
+                "`/playlist create <name>` - Create a playlist.\n"
+                "`/playlist add <name> <source>` - Save a YouTube/Spotify song or playlist.\n"
+                "`/playlist view [@member] [name]` - View saved playlists or songs.\n"
+                "`/playlist play <name> [@member]` - Queue a saved playlist.\n"
+                "`/playlist remove|move|delete` - Edit or delete your saved playlists."
             ),
             inline=False,
         )
         embed.add_field(
             name="Spotify and server settings",
             value=(
-                f"{reference('config')} - Open the server music settings form (Manage Server required).\n"
-                f"{reference('spotify server setup')} - Configure Spotify for this server (Manage Server required).\n"
-                f"{reference('spotify server clear')} - Remove this server's Spotify credentials (Manage Server required).\n"
-                f"{reference('spotify server status')} - Show this server's Spotify configuration status.\n"
-                f"{reference('spotify user setup')} - Configure your private Spotify credentials.\n"
-                f"{reference('spotify user status')} - Show your private Spotify connection status.\n"
-                f"{reference('spotify user clear')} - Remove your private Spotify credentials.\n"
+                "`/config` - Open the server music settings form (Manage Server required).\n"
+                "`/spotify server setup` - Configure Spotify for this server (Manage Server required).\n"
+                "`/spotify server clear` - Remove this server's Spotify credentials (Manage Server required).\n"
+                "`/spotify server status` - Show this server's Spotify configuration status.\n"
+                "`/spotify user setup` - Configure your private Spotify credentials.\n"
+                "`/spotify user status` - Show your private Spotify connection status.\n"
+                "`/spotify user clear` - Remove your private Spotify credentials.\n"
                 "Playlist imports support `--count`, `--range`, `--ordered`, and `--shuffle`."
             ),
             inline=False,
@@ -1591,9 +1591,9 @@ class Music(commands.Cog):
         embed.add_field(
             name="Server assistant",
             value=(
-                f"{reference('time')} - Show the server time.\n"
-                f"{reference('up')} - Show bot version, container hostname, and uptime.\n"
-                f"{reference('ping')} - Check bot responsiveness."
+                "`/time` - Show the server time.\n"
+                "`/up` - Show bot version, container hostname, and uptime.\n"
+                "`/ping` - Check bot responsiveness."
             ),
             inline=False,
         )
