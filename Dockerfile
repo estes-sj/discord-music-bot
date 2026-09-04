@@ -2,7 +2,7 @@ FROM python:3.14-alpine
 
 # Labels
 LABEL org.opencontainers.image.title="discord-music-bot" \
-      org.opencontainers.image.description="A Discord music bot that uses discord.py, youtube_dl, and FFmpeg for audio streaming" \
+      org.opencontainers.image.description="A Discord music bot that uses discord.py, yt-dlp, and FFmpeg for audio streaming" \
       org.opencontainers.image.url="https://hub.docker.com/repository/docker/estessj/discord-music-bot" \
       org.opencontainers.image.source="https://github.com/estes-sj/discord-music-bot" \
       org.opencontainers.image.licenses="GPL-3.0-or-later" \
@@ -19,6 +19,7 @@ RUN apk add --no-cache \
     git \
     curl \
     unzip \
+    tzdata \
     && pip install --upgrade pip  # Make sure pip is up to date
 
 # Set the working directory in the container
@@ -35,7 +36,8 @@ RUN pip install --upgrade pip \
 COPY . .
 
 # Set the PYTHONPATH to include the bot directory
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app \
+    TZ=UTC
 
 # Configure the yt-dlp update cron job before starting the bot.
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint

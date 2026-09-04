@@ -1,4 +1,6 @@
 from collections import namedtuple
+import random
+import time
 
 class Queue:
     """
@@ -67,6 +69,29 @@ class Queue:
 
         self.last_title_enqueued = ''
         self.queue = []
+        self.loop_current = False
+        self.continuation_pending = False
+        self.skip_requested = False
+        self.restart_requested = False
+        self.restart_position = 0
+        self.playback_offset = 0
+        self.playback_started_at = None
+
+    def start_playback(self, offset=0):
+        self.playback_offset = max(0, offset)
+        self.playback_started_at = time.monotonic()
+
+    def pause_playback(self):
+        self.playback_offset = self.current_position()
+        self.playback_started_at = None
+
+    def resume_playback(self):
+        self.playback_started_at = time.monotonic()
+
+    def current_position(self):
+        if self.playback_started_at is None:
+            return self.playback_offset
+        return self.playback_offset + time.monotonic() - self.playback_started_at
 
     def set_last_as_current(self):
         """
@@ -105,11 +130,10 @@ class Queue:
             The user ID for the song to be added to queue
         :return: None
         """
-        if len(self.queue) > 0:
-            self.queue.append(self.music(music_title, music_url, music_thumb, music_ytube, music_duration, music_user))
-        else:
-            self.queue.append(self.music(music_title, music_url, music_thumb, music_ytube, music_duration, music_user))
-            self.current_music = self.music(music_title, music_url, music_thumb, music_ytube, music_duration, music_user)
+        track = self.music(music_title, music_url, music_thumb, music_ytube, music_duration, music_user)
+        self.queue.append(track)
+        if len(self.queue) == 1:
+            self.current_music = track
 
     def dequeue(self):
         """
@@ -162,6 +186,11 @@ class Queue:
         """
         self.queue.clear()
         self.current_music = self.music('', '', '', '', '', '')
+        self.loop_current = False
+        self.restart_requested = False
+        self.restart_position = 0
+        self.playback_offset = 0
+        self.playback_started_at = None
 
     def clear_queue_except_current(self):
         """
@@ -178,6 +207,66 @@ class Queue:
             self.current_music = current
 
             self.queue = [current]  # Keep the currently playing song
+
+    def shuffle_upcoming(self):
+        """Shuffle queued songs after the currently playing song."""
+        if self.current_music not in self.queue:
+            return
+
+        current_index = self.queue.index(self.current_music)
+        upcoming = self.queue[current_index + 1:]
+        random.shuffle(upcoming)
+        self.queue[current_index + 1:] = upcoming
+
+    def queued_track_index(self, track):
+        """Return the index of an exact queued track object, if present."""
+        return next((index for index, item in enumerate(self.queue) if item is track), None)
+
+    def remove_queued_track(self, track):
+        """Remove a non-current track from the queue."""
+        track_index = self.queued_track_index(track)
+        if track_index is None or track is self.current_music:
+            return False
+
+        self.queue.pop(track_index)
+        return True
+
+    def move_queued_track(self, track, destination_index):
+        """Move a non-current track to a queue index after the current track."""
+        track_index = self.queued_track_index(track)
+        current_index = self.queued_track_index(self.current_music)
+        if (
+            track_index is None
+            or current_index is None
+            or track is self.current_music
+            or destination_index <= current_index
+            or destination_index >= len(self.queue)
+        ):
+            return False
+
+        self.queue.pop(track_index)
+        self.queue.insert(destination_index, track)
+        return True
+
+    def move_queued_track_after(self, track, anchor):
+        """Move a non-current track immediately after another queued track."""
+        track_index = self.queued_track_index(track)
+        anchor_index = self.queued_track_index(anchor)
+        current_index = self.queued_track_index(self.current_music)
+        if (
+            track_index is None
+            or anchor_index is None
+            or current_index is None
+            or track is self.current_music
+            or anchor is track
+            or anchor_index < current_index
+        ):
+            return False
+
+        self.queue.pop(track_index)
+        anchor_index = self.queued_track_index(anchor)
+        self.queue.insert(anchor_index + 1, track)
+        return True
 
     def is_empty(self):
         """
@@ -237,3 +326,7 @@ class Session:
         self.guild: int = guild
         self.channel: int = channel
         self.q: Queue = Queue()
+        self.now_playing_message = None
+        self.now_playing_track_url = None
+        self.now_playing_messages = {}
+        self.queued_track_messages = {}

@@ -1,0 +1,51 @@
+name: Bug report
+description: Report a reproducible problem with the bot.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include tokens, secrets, OAuth codes, full callback URLs, private playlist URLs, database files, or unredacted personal data. Use SECURITY.md for security reports.
+  - type: input
+    id: version
+    attributes:
+      label: Bot version or image tag
+      placeholder: v0.3.0
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Playback or voice connection
+        - YouTube search or source resolution
+        - Playlist import
+        - Spotify integration
+        - Queue or controls
+        - Configuration or permissions
+        - Slash or prefix commands
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: Describe the smallest safe set of steps.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and redacted logs
+    validations:
+      required: true
