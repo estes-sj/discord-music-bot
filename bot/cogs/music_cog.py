@@ -122,6 +122,10 @@ class Music(commands.Cog):
     def get_session_for_guild(self, guild_id):
         return next((session for session in sessions if session.guild == guild_id), None)
 
+    @staticmethod
+    def channel_has_human_listeners(channel):
+        return any(not member.bot for member in channel.members)
+
     async def add_reaction(self, ctx, emoji):
         if ctx.interaction:
             if not ctx.interaction.response.is_done():
@@ -528,7 +532,7 @@ class Music(commands.Cog):
             inactivity_duration = config["inactivity_minutes"] * 60
 
             # Check if voice channel is empty
-            if config["empty_channel_enabled"] and len(voice.channel.members) == 1:
+            if config["empty_channel_enabled"] and not self.channel_has_human_listeners(voice.channel):
                 empty_channel_elapsed += check_interval
                 if empty_channel_elapsed >= empty_channel_duration:
                     await ctx.send("👋 *No one is in the channel. Disconnecting...*")
