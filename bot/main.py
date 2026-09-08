@@ -70,6 +70,10 @@ def command_prefix_for_message(bot, message):
 
 
 class ConfigurableBot(commands.Bot):
+    async def setup_hook(self):
+        await self.add_cog(Music(self))
+        await self.add_cog(ServerAssistant(self))
+
     async def process_commands(self, message):
         if message.author.bot:
             return
@@ -211,6 +215,7 @@ async def sync_guild_commands(guild):
 
 
 async def sync_profile_help_command():
+    global_commands = client.tree.get_commands()
     help_command = client.tree.get_command("help")
     client.tree.clear_commands(guild=None)
     if help_command:
@@ -220,6 +225,10 @@ async def sync_profile_help_command():
         logger.info("Synced %s global profile application command(s)", len(commands_synced))
     except discord.HTTPException as error:
         logger.warning("Could not sync global profile application commands: %s", error)
+    finally:
+        client.tree.clear_commands(guild=None)
+        for command in global_commands:
+            client.tree.add_command(command)
 
 
 async def application_commands_enabled(interaction):
@@ -301,10 +310,6 @@ async def on_ready():
     """
     To execute once the bot is online
     """
-    if not client.get_cog("Music"):
-        await client.add_cog(Music(client))
-    if not client.get_cog("ServerAssistant"):
-        await client.add_cog(ServerAssistant(client))
     if not getattr(client, "commands_synced", False):
         for guild in client.guilds:
             await sync_guild_commands(guild)
