@@ -10,6 +10,8 @@ python-dotenv
 pillow
 cryptography
 pylast
+# davey 0.2.0 makes voice playback silent with the current discord.py master; remove once discord.py supports it.
+davey<0.2
 
 # Asynchronous support
 asyncio

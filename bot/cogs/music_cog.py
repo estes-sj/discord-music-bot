@@ -36,7 +36,9 @@ from bot.utils.lastfm_client import LastFMClient, LastFMError
 from bot.views.queue_views import (
     QueuedTrackControls,
     QueueRemoveLauncher,
+    QueueRemoveSelector,
     QueueMoveLauncher,
+    QueueMoveSelector,
 )
 from bot.views.search_views import YouTubeSearchDropdown
 from bot.utils.spotify_client import (
@@ -102,6 +104,12 @@ class Music(commands.Cog):
         if self.user_playlist_store is None:
             logger.warning("User playlists are not configured for this bot.")
 
+
+    async def cog_check(self, ctx):
+        # Every command except help reads ctx.guild.
+        if ctx.guild is None and ctx.command.qualified_name != "help":
+            raise commands.NoPrivateMessage()
+        return True
 
     def get_guild_config(self, guild_id):
         return load_guild_config(
@@ -213,6 +221,9 @@ class Music(commands.Cog):
                     # Update session if bot moved
                     if session.channel != actual_channel_id:
                         session.channel = actual_channel_id
+                elif ctx.guild.voice_client is None:
+                    # Bot is no longer in voice; the leftover session follows the user.
+                    session.channel = ctx.author.voice.channel.id
 
                 # Ensure session matches user's current voice channel
                 if session.channel == ctx.author.voice.channel.id:
@@ -252,7 +263,8 @@ class Music(commands.Cog):
                 return session
         
         # Create new session if none exists
-        session = Utilities.Session(ctx.guild.id, ctx.author.voice.channel.id)
+        voice_state = ctx.guild.me.voice or ctx.author.voice
+        session = Utilities.Session(ctx.guild.id, voice_state.channel.id if voice_state else None)
         sessions.append(session)
         return session
 
@@ -283,7 +295,7 @@ class Music(commands.Cog):
                 child.disabled = True
             try:
                 await message.edit(view=controls)
-            except (discord.Forbidden, discord.NotFound):
+            except discord.HTTPException:
                 pass
 
     def forget_queued_track_controls(self, session, track):
@@ -299,7 +311,7 @@ class Music(commands.Cog):
             child.disabled = True
         try:
             await message.edit(view=controls)
-        except (discord.Forbidden, discord.NotFound):
+        except discord.HTTPException:
             pass
 
     async def retire_queued_track_controls_except(self, session, kept_track=None):
@@ -313,7 +325,7 @@ class Music(commands.Cog):
 
         :param ctx: discord.ext.commands.Context
         """
-        session = await self.get_session_in_guild(ctx)
+        session = self.get_session_for_guild(ctx.guild.id)
         if session is None:
             return
 
@@ -381,7 +393,11 @@ class Music(commands.Cog):
                 f"Could not refresh the stream for **{escape_markdown(truncate_text(current_track.title, 150))}**; skipping it."
             )
             session.q.skip_requested = True
+            # Release the guard so the nested continuation can advance past this track.
+            session.q.continuation_pending = False
             await self.continue_queue(ctx, current_track, None)
+            return
+        if not voice or not voice.is_connected():
             return
         ffmpeg_options = FFMPEG_OPTIONS.copy()
         if start_position:
@@ -422,10 +438,10 @@ class Music(commands.Cog):
                 f"*▶️ Now playing in <#{session.channel}>*"
             )
         )
-        embed.set_thumbnail(url=session.q.current_music.thumb)
+        embed.set_thumbnail(url=session.q.current_music.thumb or None)
         embed.set_author(name="Music Stream Link", url=session.q.current_music.url)
         embed.add_field(name="Duration", value=duration_str, inline=True)
-        embed.add_field(name="Added By", value=f"<@{ctx.author.id}>", inline=True)
+        embed.add_field(name="Added By", value=f"<@{completed_track.user}>", inline=True)
 
         controls = MusicControls(
             self,
@@ -443,7 +459,7 @@ class Music(commands.Cog):
                 controls.message = session.now_playing_message
                 await session.now_playing_message.edit(embed=embed, view=controls)
                 return
-            except (discord.Forbidden, discord.NotFound):
+            except discord.HTTPException:
                 session.now_playing_message = None
                 session.now_playing_track_url = None
 
@@ -535,7 +551,7 @@ class Music(commands.Cog):
             if config["empty_channel_enabled"] and not self.channel_has_human_listeners(voice.channel):
                 empty_channel_elapsed += check_interval
                 if empty_channel_elapsed >= empty_channel_duration:
-                    await ctx.send("👋 *No one is in the channel. Disconnecting...*")
+                    await ctx.channel.send("👋 *No one is in the channel. Disconnecting...*")
                     await voice.disconnect()
 
                     session = await self.get_session_in_guild(ctx)
@@ -554,7 +570,7 @@ class Music(commands.Cog):
             if config["inactivity_enabled"] and not voice.is_playing() and not voice.is_paused():
                 inactivity_elapsed += check_interval
                 if inactivity_elapsed >= inactivity_duration:
-                    await ctx.send(
+                    await ctx.channel.send(
                         f"🔇 *No activity detected for {config['inactivity_minutes']} minutes. Disconnecting...*"
                     )
                     await voice.disconnect()
@@ -996,7 +1012,7 @@ class Music(commands.Cog):
             color=discord.Color(dominant_color),
             description=f"*🎵 Added to queue in <#{session.channel}>*",
         )
-        embed.set_thumbnail(url=track.thumb)
+        embed.set_thumbnail(url=track.thumb or None)
         embed.set_author(name="Music Stream Link", url=track.url)
         embed.add_field(name="Duration", value=duration_str, inline=True)
         embed.add_field(name="Added By", value=f"<@{track.user}>", inline=True)
@@ -2426,10 +2442,11 @@ class Music(commands.Cog):
 
         async with ctx.typing():
             url = info['url']
-            thumb = info['thumbnails'][0]['url']
+            thumbnails = info.get('thumbnails') or []
+            thumb = thumbnails[0]['url'] if thumbnails else ''
             title = info['title']
             ytube_url = info['webpage_url']
-            duration = info['duration']
+            duration = info.get('duration') or 0
             user = ctx.author.id
 
             duration_str = await convert_duration_pretty(duration)
@@ -2445,7 +2462,7 @@ class Music(commands.Cog):
                 asyncio.create_task(self.auto_disconnect(ctx, voice))  # Start the auto-disconnect task
 
             embed = discord.Embed(title=f'{escape_markdown(truncate_text(title))}', url=ytube_url, color=discord.Color(dominant_color))  
-            embed.set_thumbnail(url=thumb)
+            embed.set_thumbnail(url=thumb or None)
             embed.set_author(name="Music Stream Link", url=url)
 
             playback_active = (
@@ -2528,10 +2545,12 @@ class Music(commands.Cog):
             await self.add_reaction(ctx, "⏭️")
             return
         
-        if voice.is_playing():
+        if voice.is_playing() or voice.is_paused():
             session.q.skip_requested = True
             voice.stop()
             await self.add_reaction(ctx, "⏭️")
+        else:
+            await ctx.send("*There is no audio currently playing.*")
 
     @commands.hybrid_command(name='seek')
     async def seek(self, ctx, *, position: str):
@@ -2581,6 +2600,8 @@ class Music(commands.Cog):
         """
         voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
         if voice and voice.is_connected():
+            if not await self.ensure_user_in_voice(ctx):
+                return
             session = await self.get_session(ctx)
             if session is None:
                 return
@@ -2660,7 +2681,7 @@ class Music(commands.Cog):
             return
 
         voice = discord.utils.get(self.bot.voice_clients, guild=ctx.guild)
-        if voice.is_playing():
+        if voice.is_playing() or voice.is_paused():
             await self.retire_now_playing_controls(session)
             await self.retire_queued_track_controls_except(session)
             voice.stop()
@@ -2901,10 +2922,10 @@ class Music(commands.Cog):
                 f"🎧 *Currently playing in <#{session.channel}>*"
             )
         )
-        embed.set_thumbnail(url=session.q.current_music.thumb)
+        embed.set_thumbnail(url=session.q.current_music.thumb or None)
         embed.set_author(name="Music Stream Link", url=session.q.current_music.url)
         embed.add_field(name="Duration", value=duration_str, inline=True)
-        embed.add_field(name="Added By", value=f"<@{ctx.author.id}>", inline=True)
+        embed.add_field(name="Added By", value=f"<@{current_music.user}>", inline=True)
 
         controls = MusicControls(
             self,
@@ -2962,9 +2983,9 @@ class Music(commands.Cog):
                 {
                     "title": entry["title"],
                     "url": entry["url"],
-                    "duration": await convert_duration_pretty(entry["duration"]),
-                    "channel": entry.get("uploader", "Unknown"),
-                    "thumbnail": entry['thumbnails'][0]['url'],
+                    "duration": await convert_duration_pretty(entry.get("duration")),
+                    "channel": entry.get("uploader") or "Unknown",
+                    "thumbnail": (entry.get('thumbnails') or [{}])[0].get('url'),
                 }
                 for entry in info["entries"][:20]
             ]
@@ -3024,6 +3045,11 @@ def setup(bot):
 
 
 async def get_dominant_color(image_url):
+    """Run the blocking thumbnail download and averaging off the event loop."""
+    return await asyncio.to_thread(_dominant_color, image_url)
+
+
+def _dominant_color(image_url):
     """
     Fetches the image from the given URL and returns the dominant color as a Discord-compatible integer.
     Returns blue (default) if the URL is invalid.

@@ -324,4 +324,5 @@ async def on_guild_join(guild):
 
 
 # Runs bot's loop.
-client.run(TOKEN, log_handler=None)
+if __name__ == "__main__":
+    client.run(TOKEN, log_handler=None)
