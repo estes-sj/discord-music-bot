@@ -154,16 +154,12 @@ class Queue:
 
         :return: None
         """
-        if self.current_music in self.queue:
-            index = self.queue.index(self.current_music) + 1
-            if len(self.queue) - 1 >= index:
-                if self.current_music.title == self.queue[index].title and len(self.queue) - 1 > index + 1:
-                    self.current_music = self.queue[index + 1]
-                else:
-                    self.current_music = self.queue[index]
-
-        else:
+        # Identity lookup: equal tuples (the same song queued twice) are distinct tracks.
+        index = self.queued_track_index(self.current_music)
+        if index is None:
             self.clear_queue()
+        elif index + 1 < len(self.queue):
+            self.current_music = self.queue[index + 1]
 
     def theres_next(self):
         """
@@ -173,10 +169,8 @@ class Queue:
             True if there is a next song in queue.
             False if there isn't a next song in queue.
         """
-        if self.queue.index(self.current_music) + 1 > len(self.queue) - 1:
-            return False
-        else:
-            return True
+        index = self.queued_track_index(self.current_music)
+        return index is not None and index + 1 < len(self.queue)
 
     def clear_queue(self):
         """
@@ -210,10 +204,10 @@ class Queue:
 
     def shuffle_upcoming(self):
         """Shuffle queued songs after the currently playing song."""
-        if self.current_music not in self.queue:
+        current_index = self.queued_track_index(self.current_music)
+        if current_index is None:
             return
 
-        current_index = self.queue.index(self.current_music)
         upcoming = self.queue[current_index + 1:]
         random.shuffle(upcoming)
         self.queue[current_index + 1:] = upcoming

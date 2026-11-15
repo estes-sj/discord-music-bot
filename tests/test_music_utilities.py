@@ -20,6 +20,20 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(queue.queued_track_index(queue.current_music), 0)
         self.assertTrue(queue.remove_queued_track(queue.queue[1]))
 
+    def test_duplicate_tracks_advance_in_order_and_end(self):
+        queue = MUSIC_UTILITIES.Queue()
+        for _ in range(4):
+            queue.enqueue("Same", "url", "thumb", "youtube", 60, 1)
+
+        for index in range(1, 4):
+            self.assertTrue(queue.theres_next())
+            queue.next()
+            self.assertIs(queue.current_music, queue.queue[index])
+        self.assertFalse(queue.theres_next())
+
+    def test_empty_queue_has_no_next_track(self):
+        self.assertFalse(MUSIC_UTILITIES.Queue().theres_next())
+
     def test_moves_an_upcoming_track_after_the_current_track(self):
         queue = MUSIC_UTILITIES.Queue()
         queue.enqueue("Current", "url-1", "thumb-1", "youtube-1", 60, 1)
