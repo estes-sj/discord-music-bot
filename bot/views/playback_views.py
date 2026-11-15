@@ -33,7 +33,7 @@ class MusicControls(discord.ui.View):
             child.disabled = True
         try:
             await self.message.edit(view=self)
-        except (discord.Forbidden, discord.NotFound):
+        except discord.HTTPException:
             pass
 
     def get_session(self):
